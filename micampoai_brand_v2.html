@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi Campo.AI — Brand System v1.0</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --color-verde: #1a6b45;
+      --color-verde-claro: #2d9162;
+      --color-verde-palido: #e8f5ee;
+      --color-rojo: #8B1A1A;
+      --color-tierra: #3d2b1f;
+      --color-crema: #faf8f4;
+      --color-crema-oscuro: #f0ece4;
+      --color-texto: #1c1a17;
+      --radius-sm: 8px;
+      --radius: 12px;
+      --radius-lg: 16px;
+      --radius-pill: 999px;
+      --shadow-sm: 0 1px 3px rgba(60,45,30,0.08);
+      --shadow: 0 4px 16px rgba(60,45,30,0.10);
+      --shadow-lg: 0 8px 32px rgba(60,45,30,0.12);
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 16px;
+      --space-lg: 24px;
+      --space-xl: 40px;
+      --transition: 0.2s ease;
+      --transition-slow: 0.4s ease;
+      --border: rgba(60,45,30,0.12);
+      --border-strong: rgba(60,45,30,0.22);
+      --border-focus: #1a6b45;
+      --success: #1a6b45;
+      --warning: #b45309;
+      --danger: #dc2626;
+      --info: #1e40af;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--color-crema);
+      color: var(--color-texto);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(250,248,244,0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 var(--space-xl);
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: var(--space-xl);
+    }
+
+    nav a {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(28,26,23,0.5);
+      text-decoration: none;
+      white-space: nowrap;
+      transition: color var(--transition);
+    }
+
+    nav a:hover { color: var(--color-verde); }
+
+    nav .nav-brand {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--color-verde);
+      margin-right: auto;
+      letter-spacing: 0.05em;
+    }
+
+    /* SECTION WRAPPER */
+    section {
+      padding: 80px var(--space-xl);
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+
+    .section-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: 32px;
+      color: var(--color-texto);
+      margin-bottom: 48px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* COVER */
+    #cover {
+      background: var(--color-tierra);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 24px;
+      padding: 60px var(--space-xl);
+      max-width: none;
+    }
+
+    .cover-label {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: rgba(255,255,255,0.30);
+    }
+
+    .cover-logo {
+      width: 280px;
+      display: block;
+    }
+
+    .cover-subtitle {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 300;
+      color: rgba(255,255,255,0.40);
+      max-width: 400px;
+    }
+
+    .cover-foot {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: rgba(255,255,255,0.20);
+      margin-top: 8px;
+    }
+
+    /* SECTION 1 — LOGO */
+    .logo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .logo-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 260px;
+      gap: 16px;
+      padding: 32px;
+      border: 1px solid var(--border);
+    }
+
+    .logo-cell img { display: block; object-fit: contain; }
+
+    .logo-cell .cell-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(28,26,23,0.45);
+    }
+
+    .logo-cell.dark .cell-label { color: rgba(255,255,255,0.45); }
+
+    .logo-note {
+      margin-top: 24px;
+      padding: 16px 20px;
+      background: var(--color-crema-oscuro);
+      border-left: 3px solid var(--color-verde);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 13px;
+      color: rgba(28,26,23,0.65);
+    }
+
+    /* SECTION 2 — COLORS */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .color-card {
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .color-swatch {
+      height: 100px;
+    }
+
+    .color-info {
+      background: white;
+      padding: 12px 14px;
+    }
+
+    .color-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-texto);
+      margin-bottom: 3px;
+    }
+
+    .color-hex {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--color-verde);
+      margin-bottom: 6px;
+    }
+
+    .color-desc {
+      font-size: 11px;
+      color: rgba(28,26,23,0.5);
+      line-height: 1.5;
+    }
+
+    /* SECTION 3 — TYPOGRAPHY */
+    .type-block {
+      margin-bottom: 48px;
+      padding-bottom: 48px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .type-block:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+    .type-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--color-verde);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+      display: block;
+    }
+
+    .type-hero {
+      font-family: 'DM Serif Display', serif;
+      font-size: 48px;
+      color: var(--color-texto);
+      line-height: 1.15;
+      margin-bottom: 10px;
+    }
+
+    .type-hero .accent {
+      color: var(--color-verde);
+      font-style: italic;
+    }
+
+    .type-hero-sub {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 22px;
+      font-weight: 300;
+      color: #4a4540;
+    }
+
+    .type-scale-row {
+      margin-bottom: 14px;
+      color: var(--color-texto);
+    }
+
+    .type-muted { color: rgba(28,26,23,0.45); }
+
+    .type-green-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--color-verde);
+    }
+
+    .type-mono-example {
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      color: var(--color-verde);
+      background: var(--color-crema-oscuro);
+      padding: 14px 18px;
+      border-radius: var(--radius-sm);
+      display: inline-block;
+    }
+
+    /* SECTION 4 — TOKENS */
+    .tokens-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .token-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .token-category {
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--color-verde);
+      margin-bottom: 14px;
+    }
+
+    .token-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+
+    .token-row:last-child { border-bottom: none; }
+
+    .token-name {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: rgba(28,26,23,0.55);
+    }
+
+    .token-value {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--color-texto);
+      text-align: right;
+    }
+
+    /* SECTION 5 — COMPONENTS */
+    .components-group {
+      margin-bottom: 40px;
+    }
+
+    .components-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(28,26,23,0.4);
+      margin-bottom: 16px;
+    }
+
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+    .btn {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      border: none;
+      transition: opacity var(--transition);
+      letter-spacing: 0.01em;
+    }
+
+    .btn-primary { background: var(--color-verde); color: white; }
+    .btn-secondary { background: transparent; border: 1.5px solid var(--color-verde); color: var(--color-verde); }
+    .btn-ghost { background: transparent; border: 1.5px solid rgba(60,45,30,0.22); color: rgba(28,26,23,0.5); }
+
+    .badge-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+    .badge {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+    }
+
+    .badge-green { background: var(--color-verde-palido); color: var(--color-verde); }
+    .badge-yellow { background: #fef3c7; color: #b45309; }
+    .badge-red { background: #fee2e2; color: var(--danger); }
+
+    .input-demo {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      padding: 10px 14px;
+      border: 1.5px solid #e0d8cc;
+      border-radius: var(--radius-sm);
+      width: 220px;
+      background: white;
+      color: var(--color-texto);
+      outline: none;
+      transition: border-color var(--transition);
+    }
+
+    .input-demo:focus { border-color: var(--color-verde); }
+
+    .metric-row { display: flex; gap: 16px; flex-wrap: wrap; }
+
+    .metric-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      min-width: 180px;
+    }
+
+    .metric-label {
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: rgba(28,26,23,0.4);
+      margin-bottom: 10px;
+    }
+
+    .metric-number {
+      font-family: 'DM Serif Display', serif;
+      font-size: 40px;
+      color: var(--color-verde);
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .metric-sub {
+      font-size: 12px;
+      color: rgba(28,26,23,0.45);
+    }
+
+    /* SECTION 6 — VOICE */
+    .voice-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    .voice-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .voice-name {
+      font-family: 'DM Serif Display', serif;
+      font-size: 20px;
+      color: var(--color-verde);
+      margin-bottom: 8px;
+    }
+
+    .voice-desc {
+      font-size: 13px;
+      color: rgba(28,26,23,0.55);
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
+
+    .voice-example-label {
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: rgba(28,26,23,0.35);
+      margin-bottom: 8px;
+    }
+
+    .voice-example-box {
+      border-left: 3px solid var(--color-verde);
+      background: var(--color-crema);
+      padding: 12px 16px;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 14px;
+      color: var(--color-texto);
+      line-height: 1.55;
+    }
+
+    /* SECTION 7 — DO/DON'T */
+    .usage-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .usage-col {
+      border-radius: var(--radius-lg);
+      padding: 32px;
+    }
+
+    .usage-do { background: #e8f5ee; border: 1px solid #c2e0cf; }
+    .usage-dont { background: #f5e8e8; border: 1px solid #e0c2c2; }
+
+    .usage-col h3 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 22px;
+      margin-bottom: 24px;
+    }
+
+    .usage-do h3 { color: var(--color-verde); }
+    .usage-dont h3 { color: var(--color-rojo); }
+
+    .usage-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .usage-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .usage-list li::before {
+      content: '';
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      margin-top: 2px;
+      background-size: 10px;
+      background-repeat: no-repeat;
+      background-position: center;
+    }
+
+    .usage-do .usage-list li::before {
+      background-color: var(--color-verde);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5l2.5 2.5L8 3' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+
+    .usage-dont .usage-list li::before {
+      background-color: var(--color-rojo);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M3 3l4 4M7 3l-4 4' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    }
+
+    /* FOOTER */
+    footer {
+      background: var(--color-tierra);
+      text-align: center;
+      padding: 28px var(--space-xl);
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 0.04em;
+    }
+
+    /* Dividers between sections */
+    section + section {
+      border-top: 1px solid var(--border);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      nav { gap: 20px; overflow-x: auto; }
+      .color-grid { grid-template-columns: repeat(2, 1fr); }
+      .tokens-grid { grid-template-columns: 1fr 1fr; }
+      .voice-grid { grid-template-columns: 1fr; }
+      .usage-grid { grid-template-columns: 1fr; }
+      .logo-grid { grid-template-columns: 1fr; }
+      section { padding: 56px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <span class="nav-brand">Mi Campo.AI</span>
+    <a href="#logo">01 Logo</a>
+    <a href="#colores">02 Color</a>
+    <a href="#tipografia">03 Tipo</a>
+    <a href="#tokens">04 Tokens</a>
+    <a href="#componentes">05 Componentes</a>
+    <a href="#voz">06 Voz</a>
+    <a href="#uso">07 Uso</a>
+  </nav>
+
+  <!-- COVER -->
+  <section id="cover">
+    <span class="cover-label">Brand Guidelines v1.0</span>
+    <img src="./micampo_logo_cream.png" alt="Mi Campo.AI" class="cover-logo" style="width: 280px;">
+    <p class="cover-subtitle">Software de gestion ganadera inteligente para Latinoamerica</p>
+    <span class="cover-foot">Mi Campo.AI 2025</span>
+  </section>
+
+  <!-- 01 LOGO -->
+  <section id="logo">
+    <h2 class="section-title">01 — Identidad / El logo</h2>
+    <div class="logo-grid">
+      <div class="logo-cell" style="background: #ffffff;">
+        <img src="./micampo_logo_horizontal.png" alt="Logo horizontal" style="width: 300px; mix-blend-mode: multiply;">
+        <span class="cell-label">Logo horizontal — uso principal</span>
+      </div>
+      <div class="logo-cell" style="background: #faf8f4;">
+        <img src="./micampo_wordmark.png" alt="Wordmark" style="width: 280px; mix-blend-mode: multiply;">
+        <span class="cell-label">Wordmark — sin icono</span>
+      </div>
+      <div class="logo-cell" style="background: #ffffff;">
+        <img src="./micampo_icon.png" alt="Icono" style="width: 120px; mix-blend-mode: multiply;">
+        <span class="cell-label">Icono — favicon y app</span>
+      </div>
+      <div class="logo-cell dark" style="background: #3d2b1f;">
+        <img src="./micampo_logo_cream.png" alt="Logo oscuro" style="width: 300px;">
+        <span class="cell-label">Version oscura — sobre cafe</span>
+      </div>
+    </div>
+    <p class="logo-note">El logo siempre debe tener espacio libre equivalente a la altura de la letra M en todos sus lados.</p>
+  </section>
+
+  <!-- 02 COLORES -->
+  <section id="colores">
+    <h2 class="section-title">02 — Color / Paleta de marca</h2>
+    <div class="color-grid">
+      <div class="color-card">
+        <div class="color-swatch" style="background: #1a6b45;"></div>
+        <div class="color-info">
+          <div class="color-name">Verde Campo</div>
+          <div class="color-hex">#1a6b45</div>
+          <div class="color-desc">Color principal. Botones, links, iconos activos.</div>
+        </div>
+      </div>
+      <div class="color-card">
+        <div class="color-swatch" style="background: #2d9162;"></div>
+        <div class="color-info">
+          <div class="color-name">Verde Claro</div>
+          <div class="color-hex">#2d9162</div>
+          <div class="color-desc">Hover states y variaciones activas.</div>
+        </div>
+      </div>
+      <div class="color-card">
+        <div class="color-swatch" style="background: #e8f5ee; border-bottom: 1px solid var(--border);"></div>
+        <div class="color-info">
+          <div class="color-name">Verde Palido</div>
+          <div class="color-hex">#e8f5ee</div>
+          <div class="color-desc">Fondos de badges y alertas positivas.</div>
+        </div>
+      </div>
+      <div class="color-card">
+        <div class="color-swatch" style="background: #8B1A1A;"></div>
+        <div class="color-info">
+          <div class="color-name">Rojo Canada</div>
+          <div class="color-hex">#8B1A1A</div>
+          <div class="color-desc">Acento del logo. Alertas criticas. Usar con moderacion.</div>
+        </div>
+      </div>
+      <div class="color-card">
+        <div class="color-swatch" style="background: #3d2b1f;"></div>
+        <div class="color-info">
+          <div class="color-name">Tierra Oscuro</div>
+          <div class="color-hex">#3d2b1f</div>
+          <div class="color-desc">Fondos oscuros y footer.</div>
+        </div>
+      </div>
+      <div class="color-card">
+        <div class="color-swatch" style="background: #faf8f4; border-bottom: 1px solid var(--border);"></div>
+        <div class="color-info">
+          <div class="color-name">Crema</div>
+          <div class="color-hex">#faf8f4</div>
+          <div class="color-desc">Fondo principal. Nunca blanco puro.</div>
+        </div>
+      </div>
+      <div class="color-card">
+        <div class="color-swatch" style="background: #f0ece4; border-bottom: 1px solid var(--border);"></div>
+        <div class="color-info">
+          <div class="color-name">Crema Oscuro</div>
+          <div class="color-hex">#f0ece4</div>
+          <div class="color-desc">Secciones secundarias.</div>
+        </div>
+      </div>
+      <div class="color-card">
+        <div class="color-swatch" style="background: #1c1a17;"></div>
+        <div class="color-info">
+          <div class="color-name">Texto Principal</div>
+          <div class="color-hex">#1c1a17</div>
+          <div class="color-desc">Todo el texto primario.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 TIPOGRAFIA -->
+  <section id="tipografia">
+    <h2 class="section-title">03 — Tipografia / Sistema tipografico</h2>
+
+    <div class="type-block">
+      <span class="type-tag">DM Serif Display — Titulares</span>
+      <div class="type-hero">La finca que <span class="accent">se gestiona sola</span></div>
+      <div class="type-hero-sub">Software ganadero inteligente para Colombia</div>
+    </div>
+
+    <div class="type-block">
+      <span class="type-tag">DM Sans — Interfaz</span>
+      <div class="type-scale-row" style="font-size: 32px; font-weight: 500;">Dashboard de finca</div>
+      <div class="type-scale-row" style="font-size: 22px; font-weight: 500;">Inventario de animales</div>
+      <div class="type-scale-row" style="font-size: 16px; font-weight: 400;">Texto de parrafo: el sistema registra cada evento en la finca de forma automatica y precisa.</div>
+      <div class="type-scale-row type-muted" style="font-size: 13px; font-weight: 400;">Texto secundario — metadatos, etiquetas, descripciones de campo.</div>
+      <div class="type-scale-row"><span class="type-green-label">Etiqueta activa</span></div>
+    </div>
+
+    <div class="type-block">
+      <span class="type-tag">DM Mono — Datos y codigo</span>
+      <div class="type-mono-example">animal_id: 047 — $480,000 COP — #1a6b45</div>
+    </div>
+  </section>
+
+  <!-- 04 TOKENS -->
+  <section id="tokens">
+    <h2 class="section-title">04 — Tokens / Variables del sistema</h2>
+    <div class="tokens-grid">
+
+      <div class="token-card">
+        <div class="token-category">Radios</div>
+        <div class="token-row"><span class="token-name">--radius-sm</span><span class="token-value">8px</span></div>
+        <div class="token-row"><span class="token-name">--radius</span><span class="token-value">12px</span></div>
+        <div class="token-row"><span class="token-name">--radius-lg</span><span class="token-value">16px</span></div>
+        <div class="token-row"><span class="token-name">--radius-pill</span><span class="token-value">999px</span></div>
+      </div>
+
+      <div class="token-card">
+        <div class="token-category">Sombras</div>
+        <div class="token-row"><span class="token-name">--shadow-sm</span><span class="token-value">0 1px 3px …08</span></div>
+        <div class="token-row"><span class="token-name">--shadow</span><span class="token-value">0 4px 16px …10</span></div>
+        <div class="token-row"><span class="token-name">--shadow-lg</span><span class="token-value">0 8px 32px …12</span></div>
+      </div>
+
+      <div class="token-card">
+        <div class="token-category">Espaciado</div>
+        <div class="token-row"><span class="token-name">--space-xs</span><span class="token-value">4px</span></div>
+        <div class="token-row"><span class="token-name">--space-sm</span><span class="token-value">8px</span></div>
+        <div class="token-row"><span class="token-name">--space-md</span><span class="token-value">16px</span></div>
+        <div class="token-row"><span class="token-name">--space-lg</span><span class="token-value">24px</span></div>
+        <div class="token-row"><span class="token-name">--space-xl</span><span class="token-value">40px</span></div>
+      </div>
+
+      <div class="token-card">
+        <div class="token-category">Transiciones</div>
+        <div class="token-row"><span class="token-name">--transition</span><span class="token-value">0.2s ease</span></div>
+        <div class="token-row"><span class="token-name">--transition-slow</span><span class="token-value">0.4s ease</span></div>
+      </div>
+
+      <div class="token-card">
+        <div class="token-category">Bordes</div>
+        <div class="token-row"><span class="token-name">--border</span><span class="token-value">rgba …12</span></div>
+        <div class="token-row"><span class="token-name">--border-strong</span><span class="token-value">rgba …22</span></div>
+        <div class="token-row"><span class="token-name">--border-focus</span><span class="token-value">#1a6b45</span></div>
+      </div>
+
+      <div class="token-card">
+        <div class="token-category">Estados</div>
+        <div class="token-row"><span class="token-name">--success</span><span class="token-value">#1a6b45</span></div>
+        <div class="token-row"><span class="token-name">--warning</span><span class="token-value">#b45309</span></div>
+        <div class="token-row"><span class="token-name">--danger</span><span class="token-value">#dc2626</span></div>
+        <div class="token-row"><span class="token-name">--info</span><span class="token-value">#1e40af</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 05 COMPONENTES -->
+  <section id="componentes">
+    <h2 class="section-title">05 — Componentes / Elementos de interfaz</h2>
+
+    <div class="components-group">
+      <div class="components-label">Botones</div>
+      <div class="btn-row">
+        <button class="btn btn-primary">Guardar animal</button>
+        <button class="btn btn-secondary">Ver historial</button>
+        <button class="btn btn-ghost">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="components-group">
+      <div class="components-label">Badges de estado</div>
+      <div class="badge-row">
+        <span class="badge badge-green">En orden</span>
+        <span class="badge badge-yellow">Stock bajo</span>
+        <span class="badge badge-red">Critico</span>
+      </div>
+    </div>
+
+    <div class="components-group">
+      <div class="components-label">Input</div>
+      <input type="text" class="input-demo" placeholder="Nombre del animal">
+    </div>
+
+    <div class="components-group">
+      <div class="components-label">Cards de metrica</div>
+      <div class="metric-row">
+        <div class="metric-card">
+          <div class="metric-label">Animales totales</div>
+          <div class="metric-number">247</div>
+          <div class="metric-sub">+3 este mes</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Produccion hoy</div>
+          <div class="metric-number">840L</div>
+          <div class="metric-sub">+12% vs ayer</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 VOZ -->
+  <section id="voz">
+    <h2 class="section-title">06 — Voz de marca / Como habla Mi Campo.AI</h2>
+    <div class="voice-grid">
+
+      <div class="voice-card">
+        <div class="voice-name">Directa</div>
+        <div class="voice-desc">Sin rodeos ni jerga tecnica. El ganadero necesita informacion clara y rapida.</div>
+        <div class="voice-example-label">Ejemplo</div>
+        <div class="voice-example-box">La vaca 47 necesita vacuna este martes.</div>
+      </div>
+
+      <div class="voice-card">
+        <div class="voice-name">Cercana</div>
+        <div class="voice-desc">Como un buen administrador de finca. Familiar, no corporativa.</div>
+        <div class="voice-example-label">Ejemplo</div>
+        <div class="voice-example-box">Tu Lote C lleva 3 dias por debajo del promedio. Vale la pena revisarlo.</div>
+      </div>
+
+      <div class="voice-card">
+        <div class="voice-name">Honesta</div>
+        <div class="voice-desc">Si algo esta mal, lo dice. No endulza los datos.</div>
+        <div class="voice-example-label">Ejemplo</div>
+        <div class="voice-example-box">4 animales llevan mas de 120 dias sin concebir. Estan afectando la rentabilidad.</div>
+      </div>
+
+      <div class="voice-card">
+        <div class="voice-name">Accionable</div>
+        <div class="voice-desc">Cada mensaje termina con algo que el usuario puede hacer.</div>
+        <div class="voice-example-label">Ejemplo</div>
+        <div class="voice-example-box">La Ivermectina se agota en 5 dias. Sugerimos pedir 20 dosis esta semana.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 07 USO CORRECTO -->
+  <section id="uso">
+    <h2 class="section-title">07 — Uso correcto / Que hacer y que no hacer</h2>
+    <div class="usage-grid">
+
+      <div class="usage-col usage-do">
+        <h3>Hacer</h3>
+        <ul class="usage-list">
+          <li>Usar el logo sobre fondo crema, blanco o tierra oscuro</li>
+          <li>Mantener espacio de proteccion alrededor del logo</li>
+          <li>Usar version cream del logo sobre fondos oscuros</li>
+          <li>Usar DM Serif Display solo para titulares grandes</li>
+          <li>Usar el verde como color dominante en la interfaz</li>
+          <li>Usar el rojo Canada solo como acento muy puntual</li>
+        </ul>
+      </div>
+
+      <div class="usage-col usage-dont">
+        <h3>No hacer</h3>
+        <ul class="usage-list">
+          <li>Cambiar los colores del logo o la hoja</li>
+          <li>Usar la hoja con proporciones o geometria diferente</li>
+          <li>Colocar el logo sobre fondos de colores ajenos a la paleta</li>
+          <li>Usar el rojo como color de fondo o elemento dominante</li>
+          <li>Rotar, distorsionar o aplicar efectos al logo</li>
+          <li>Usar fuentes distintas a DM Serif, DM Sans o DM Mono</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    Mi Campo.AI — Brand System v1.0 — 2025
+  </footer>
+
+</body>
+</html>

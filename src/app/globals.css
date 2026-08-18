@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --green: #1a6b45;
+  --green-light: #2d9162;
+  --green-pale: #e8f5ee;
+  --red: #8B1A1A;
+  --soil: #3d2b1f;
+  --cream: #faf8f4;
+  --cream-dark: #f0ece4;
+  --text: #1c1a17;
+  --text-mid: #4a4540;
+  --text-muted: #8c7f74;
+  --border: rgba(60, 45, 30, 0.12);
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 3px rgba(60, 45, 30, 0.08);
+  --shadow: 0 4px 16px rgba(60, 45, 30, 0.10);
+}
+
+body {
+  background-color: var(--cream);
+  color: var(--text);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
