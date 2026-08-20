@@ -42,29 +42,6 @@ const navItems = [
       </svg>
     ),
   },
-  {
-    href: '/dashboard/ventas',
-    label: 'Ventas',
-    exact: false,
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M2 2H8.5L14 7.5L9 12.5L3.5 7V2H2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none" />
-        <circle cx="5.5" cy="5.5" r="1" fill="currentColor" />
-      </svg>
-    ),
-  },
-  {
-    href: '/dashboard/eventos',
-    label: 'Eventos',
-    exact: false,
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <rect x="2" y="3.5" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.4" fill="none" />
-        <path d="M2 7.5H14" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M5.5 2V4M10.5 2V4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-    ),
-  },
 ]
 
 export function Sidebar({ email }: { email: string }) {

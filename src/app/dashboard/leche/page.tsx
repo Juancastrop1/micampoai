@@ -77,13 +77,21 @@ export default function LechePage() {
     loadData()
   }
 
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
+  // Week bounds: Monday to Sunday of the current week
+  const _now = new Date()
+  const _day = _now.getDay()
+  const _daysToMon = _day === 0 ? 6 : _day - 1
+  const _mon = new Date(_now); _mon.setDate(_now.getDate() - _daysToMon)
+  const _sun = new Date(_mon); _sun.setDate(_mon.getDate() + 6)
+  const semanaInicio = _mon.toISOString().split('T')[0]
+  const semanaFin = _sun.toISOString().split('T')[0]
+
   const filtered = registros.filter(r =>
     (!filterAnimal || r.animal_id === filterAnimal) &&
     (!filterLote || r.lote_id === filterLote)
   )
   const produccionHoy = registros.filter(r => r.fecha === today).reduce((s, r) => s + r.litros, 0)
-  const registrosSemana = registros.filter(r => r.fecha >= weekAgo)
+  const registrosSemana = registros.filter(r => r.fecha >= semanaInicio && r.fecha <= semanaFin)
   const produccionSemana = registrosSemana.reduce((s, r) => s + r.litros, 0)
   const ingresosSemana = registrosSemana.reduce((s, r) => s + r.litros * (r.precio_litro ?? config?.precio_litro_leche ?? 0), 0)
 
