@@ -9,7 +9,6 @@ const inputStyle: React.CSSProperties = {
   borderRadius: '8px', backgroundColor: '#f0ece4', fontSize: '14px',
   fontFamily: 'var(--font-sans), sans-serif', outline: 'none', boxSizing: 'border-box',
 }
-
 const labelStyle: React.CSSProperties = {
   fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 500,
   color: '#4a4540', display: 'block', marginBottom: '6px',
@@ -25,6 +24,7 @@ export default function LechePage() {
   const [saving, setSaving] = useState(false)
   const [filterAnimal, setFilterAnimal] = useState('')
   const [filterLote, setFilterLote] = useState('')
+  const [fechaError, setFechaError] = useState<string | null>(null)
 
   const today = new Date().toISOString().split('T')[0]
   const [fecha, setFecha] = useState(today)
@@ -33,6 +33,7 @@ export default function LechePage() {
   const [animalId, setAnimalId] = useState('')
   const [loteId, setLoteId] = useState('')
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
@@ -44,13 +45,20 @@ export default function LechePage() {
 
     const [regRes, animRes, lotRes, confRes] = await Promise.all([
       supabase.from('registro_leche').select('*').eq('finca_id', currentFinca.id).order('fecha', { ascending: false }).limit(50),
-      supabase.from('animales').select('id, codigo, nombre').eq('finca_id', currentFinca.id).eq('estado', 'activo'),
+      // Solo hembras activas
+      supabase.from('animales').select('id, codigo, nombre, lote_id').eq('finca_id', currentFinca.id).eq('estado', 'activo').eq('sexo', 'hembra'),
       supabase.from('lotes').select('*').eq('finca_id', currentFinca.id),
       supabase.from('config_finca').select('*').eq('finca_id', currentFinca.id).maybeSingle(),
     ])
+
+    const hembrasData = (animRes.data ?? []) as Animal[]
     setRegistros(regRes.data ?? [])
-    setAnimales((animRes.data ?? []) as Animal[])
-    setLotes(lotRes.data ?? [])
+    setAnimales(hembrasData)
+
+    // Solo lotes que tengan al menos una hembra activa
+    const hembrasLoteIds = new Set(hembrasData.map(a => a.lote_id).filter((id): id is string => id != null))
+    setLotes((lotRes.data ?? []).filter((l: Lote) => hembrasLoteIds.has(l.id)))
+
     setConfig(confRes.data ?? null)
     setLoading(false)
   }
@@ -58,6 +66,14 @@ export default function LechePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!finca || !litros) return
+
+    // Validate no future dates
+    if (fecha > today) {
+      setFechaError('La fecha no puede ser futura.')
+      return
+    }
+    setFechaError(null)
+
     setSaving(true)
     const precioFinal = precio ? parseFloat(precio) : (config?.precio_litro_leche ?? null)
     const supabase = createClient()
@@ -77,14 +93,13 @@ export default function LechePage() {
     loadData()
   }
 
-  // Week bounds: Monday to Sunday of the current week
+  // Week bounds: Monday to TODAY (not Sunday)
   const _now = new Date()
   const _day = _now.getDay()
   const _daysToMon = _day === 0 ? 6 : _day - 1
   const _mon = new Date(_now); _mon.setDate(_now.getDate() - _daysToMon)
-  const _sun = new Date(_mon); _sun.setDate(_mon.getDate() + 6)
   const semanaInicio = _mon.toISOString().split('T')[0]
-  const semanaFin = _sun.toISOString().split('T')[0]
+  const semanaFin = today  // Up to today, not Sunday
 
   const filtered = registros.filter(r =>
     (!filterAnimal || r.animal_id === filterAnimal) &&
@@ -127,7 +142,8 @@ export default function LechePage() {
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div>
               <label style={labelStyle}>Fecha</label>
-              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} required style={inputStyle} />
+              <input type="date" value={fecha} onChange={e => { setFecha(e.target.value); setFechaError(null) }} required max={today} style={inputStyle} />
+              {fechaError && <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#8B1A1A', margin: '4px 0 0' }}>{fechaError}</p>}
             </div>
             <div>
               <label style={labelStyle}>Litros *</label>
@@ -138,7 +154,7 @@ export default function LechePage() {
               <input type="number" step="0.01" min="0" value={precio} onChange={e => setPrecio(e.target.value)} placeholder={config ? String(config.precio_litro_leche) : '0'} style={inputStyle} />
             </div>
             <div>
-              <label style={labelStyle}>Animal (opcional)</label>
+              <label style={labelStyle}>Animal (hembras activas)</label>
               <select value={animalId} onChange={e => setAnimalId(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
                 <option value="">Sin especificar</option>
                 {animales.map(a => <option key={a.id} value={a.id}>{a.codigo}{a.nombre ? ` — ${a.nombre}` : ''}</option>)}
@@ -185,10 +201,10 @@ export default function LechePage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr><td colSpan={4} style={{ padding: '28px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin registros</td></tr>
-                ) : filtered.map((r, i) => {
+                ) : filtered.slice(0, 20).map((r, i) => {
                   const ingreso = r.litros * (r.precio_litro ?? config?.precio_litro_leche ?? 0)
                   return (
-                    <tr key={r.id} style={{ borderBottom: i < filtered.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
+                    <tr key={r.id} style={{ borderBottom: i < Math.min(filtered.length, 20) - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
                       <td style={{ padding: '10px 16px', color: '#1c1a17' }}>{r.fecha}</td>
                       <td style={{ padding: '10px 16px', color: '#1c1a17', fontWeight: 500 }}>{r.litros} L</td>
                       <td style={{ padding: '10px 16px', color: '#4a4540' }}>{r.precio_litro ? `$${r.precio_litro}` : '—'}</td>

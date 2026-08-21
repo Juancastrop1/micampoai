@@ -40,13 +40,17 @@ export default function DashboardPage() {
 
     if (currentFinca) {
       const today = new Date().toISOString().split('T')[0]
-      const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
       const weekAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+      // Week start = Monday of current week
+      const _dn = new Date(); const _dd = _dn.getDay()
+      const _dtm = _dd === 0 ? 6 : _dd - 1
+      const _mnd = new Date(_dn); _mnd.setDate(_dn.getDate() - _dtm)
+      const weekStart = _mnd.toISOString().split('T')[0]
 
       const [animalesRes, lechHoyRes, lechSemRes, animalIdsRes] = await Promise.all([
         supabase.from('animales').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id).eq('estado', 'activo'),
         supabase.from('registro_leche').select('litros').eq('finca_id', currentFinca.id).eq('fecha', today),
-        supabase.from('registro_leche').select('litros, precio_litro').eq('finca_id', currentFinca.id).gte('fecha', weekAgo),
+        supabase.from('registro_leche').select('litros, precio_litro').eq('finca_id', currentFinca.id).gte('fecha', weekStart).lte('fecha', today),
         supabase.from('animales').select('id').eq('finca_id', currentFinca.id),
       ])
 
