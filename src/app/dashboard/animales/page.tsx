@@ -38,7 +38,7 @@ const emptyForm: FormState = {
   proposito: '', lote_id: '', peso_actual: '', notas: '',
 }
 type SortCol = 'codigo' | 'nombre' | 'raza' | 'lote'
-type MasivoForm = { tipo: string; descripcion: string; fecha: string; costo: string; proxima_fecha: string }
+type MasivoForm = { tipo: string; descripcion: string; fecha: string; costo: string; proxima_fecha: string; precioVentaTotal: string; comprador: string }
 
 export default function AnimalesPage() {
   const [finca, setFinca] = useState<Finca | null>(null)
@@ -72,8 +72,9 @@ export default function AnimalesPage() {
 
   // Evento masivo
   const [showMasivoModal, setShowMasivoModal] = useState(false)
+  const [showVentaConfirm, setShowVentaConfirm] = useState(false)
   const [masivoMode, setMasivoMode] = useState<'lote' | 'manual'>('lote')
-  const [masivoForm, setMasivoForm] = useState<MasivoForm>({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '' })
+  const [masivoForm, setMasivoForm] = useState<MasivoForm>({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '', precioVentaTotal: '', comprador: '' })
   const [masivoLoteId, setMasivoLoteId] = useState('')
   const [masivoSelected, setMasivoSelected] = useState<string[]>([])
   const [savingMasivo, setSavingMasivo] = useState(false)
@@ -163,33 +164,73 @@ export default function AnimalesPage() {
   // Evento masivo
   const activeAnimales = animales.filter(a => a.estado === 'activo')
   const masivoLoteAnimals = masivoLoteId ? activeAnimales.filter(a => a.lote_id === masivoLoteId) : []
+  const ventaAnimalsCount = masivoMode === 'lote' ? masivoLoteAnimals.length : masivoSelected.length
 
   function toggleMasivoAnimal(id: string) {
     setMasivoSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
-  async function handleMasivoSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function executeMasivo() {
     setMasivoError(null)
-    if (!masivoForm.tipo || !masivoForm.descripcion || !masivoForm.fecha) return
     const targetIds = masivoMode === 'lote' ? masivoLoteAnimals.map(a => a.id) : masivoSelected
     if (targetIds.length === 0) { setMasivoError('Selecciona al menos un animal.'); return }
     setSavingMasivo(true)
     const supabase = createClient()
-    await supabase.from('eventos_animal').insert(
-      targetIds.map(animal_id => ({
-        animal_id,
-        tipo: masivoForm.tipo as EventoAnimal['tipo'],
-        descripcion: masivoForm.descripcion,
-        fecha: masivoForm.fecha,
-        costo: masivoForm.costo ? parseFloat(masivoForm.costo) : null,
-        proxima_fecha: masivoForm.proxima_fecha || null,
-      }))
-    )
+
+    if (masivoForm.tipo === 'venta') {
+      const precioPorCabeza = masivoForm.precioVentaTotal ? parseFloat(masivoForm.precioVentaTotal) / targetIds.length : 0
+      await Promise.all([
+        supabase.from('eventos_animal').insert(
+          targetIds.map(animal_id => ({
+            animal_id,
+            tipo: 'venta' as EventoAnimal['tipo'],
+            descripcion: masivoForm.descripcion || `Venta${masivoForm.comprador ? ` a ${masivoForm.comprador}` : ''}`,
+            fecha: masivoForm.fecha,
+            costo: precioPorCabeza > 0 ? precioPorCabeza : null,
+            proxima_fecha: null,
+          }))
+        ),
+        supabase.from('animales').update({ estado: 'vendido' }).in('id', targetIds),
+        supabase.from('ventas_animales').insert(
+          targetIds.map(animal_id => ({
+            animal_id,
+            finca_id: finca!.id,
+            fecha: masivoForm.fecha,
+            precio: precioPorCabeza,
+            comprador: masivoForm.comprador || null,
+          }))
+        ),
+      ])
+    } else {
+      await supabase.from('eventos_animal').insert(
+        targetIds.map(animal_id => ({
+          animal_id,
+          tipo: masivoForm.tipo as EventoAnimal['tipo'],
+          descripcion: masivoForm.descripcion,
+          fecha: masivoForm.fecha,
+          costo: masivoForm.costo ? parseFloat(masivoForm.costo) : null,
+          proxima_fecha: masivoForm.proxima_fecha || null,
+        }))
+      )
+    }
+
     setSavingMasivo(false)
+    setShowVentaConfirm(false)
     setShowMasivoModal(false)
-    setMasivoForm({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '' })
+    setMasivoForm({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '', precioVentaTotal: '', comprador: '' })
     setMasivoLoteId(''); setMasivoSelected([]); setMasivoError(null)
+    loadData()
+  }
+
+  async function handleMasivoSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setMasivoError(null)
+    if (!masivoForm.tipo || !masivoForm.fecha) return
+    if (masivoForm.tipo !== 'venta' && !masivoForm.descripcion) return
+    const targetIds = masivoMode === 'lote' ? masivoLoteAnimals.map(a => a.id) : masivoSelected
+    if (targetIds.length === 0) { setMasivoError('Selecciona al menos un animal.'); return }
+    if (masivoForm.tipo === 'venta') { setShowVentaConfirm(true); return }
+    await executeMasivo()
   }
 
   // Sorting
@@ -347,6 +388,7 @@ export default function AnimalesPage() {
                     <option value="vacuna">Vacuna</option>
                     <option value="tratamiento">Tratamiento</option>
                     <option value="pesaje">Pesaje</option>
+                    <option value="venta">Venta</option>
                     <option value="otro">Otro</option>
                   </select>
                 </div>
@@ -356,19 +398,37 @@ export default function AnimalesPage() {
                 </div>
               </div>
               <div>
-                <label style={labelStyle}>Descripción *</label>
-                <input value={masivoForm.descripcion} onChange={e => setMasivoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Describe el evento" required style={inputStyle} />
+                <label style={labelStyle}>Descripción{masivoForm.tipo !== 'venta' ? ' *' : ''}</label>
+                <input value={masivoForm.descripcion} onChange={e => setMasivoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Describe el evento" required={masivoForm.tipo !== 'venta'} style={inputStyle} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <div>
-                  <label style={labelStyle}>Costo (COP)</label>
-                  <input type="number" step="0.01" value={masivoForm.costo} onChange={e => setMasivoForm(f => ({ ...f, costo: e.target.value }))} placeholder="0" style={inputStyle} />
+              {masivoForm.tipo === 'venta' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <label style={labelStyle}>Precio total venta (COP)</label>
+                    <input type="number" step="0.01" min="0" value={masivoForm.precioVentaTotal} onChange={e => setMasivoForm(f => ({ ...f, precioVentaTotal: e.target.value }))} placeholder="0" style={inputStyle} />
+                    {masivoForm.precioVentaTotal && ventaAnimalsCount > 0 && (
+                      <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#1a6b45', margin: '4px 0 0' }}>
+                        ${Math.round(parseFloat(masivoForm.precioVentaTotal) / ventaAnimalsCount).toLocaleString('es-CO')} por cabeza
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Comprador (opcional)</label>
+                    <input value={masivoForm.comprador} onChange={e => setMasivoForm(f => ({ ...f, comprador: e.target.value }))} placeholder="Nombre del comprador" style={inputStyle} />
+                  </div>
                 </div>
-                <div>
-                  <label style={labelStyle}>Próxima fecha</label>
-                  <input type="date" value={masivoForm.proxima_fecha} onChange={e => setMasivoForm(f => ({ ...f, proxima_fecha: e.target.value }))} style={inputStyle} />
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <label style={labelStyle}>Costo (COP)</label>
+                    <input type="number" step="0.01" value={masivoForm.costo} onChange={e => setMasivoForm(f => ({ ...f, costo: e.target.value }))} placeholder="0" style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Próxima fecha</label>
+                    <input type="date" value={masivoForm.proxima_fecha} onChange={e => setMasivoForm(f => ({ ...f, proxima_fecha: e.target.value }))} style={inputStyle} />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Mode toggle */}
               <div>
@@ -433,6 +493,30 @@ export default function AnimalesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---- VENTA CONFIRM ---- */}
+      {showVentaConfirm && (
+        <div onClick={() => setShowVentaConfirm(false)}
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '16px' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <h3 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#1c1a17', margin: '0 0 12px' }}>Confirmar venta</h3>
+            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#4a4540', margin: '0 0 24px', lineHeight: 1.6 }}>
+              Vas a registrar la venta de <strong>{ventaAnimalsCount} animal{ventaAnimalsCount !== 1 ? 'es' : ''}</strong>. Su estado cambiará a <strong>vendido</strong>. ¿Confirmar?
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowVentaConfirm(false)}
+                style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>
+                Cancelar
+              </button>
+              <button onClick={executeMasivo} disabled={savingMasivo}
+                style={{ padding: '10px 24px', backgroundColor: '#1a6b45', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: savingMasivo ? 'not-allowed' : 'pointer', opacity: savingMasivo ? 0.7 : 1 }}>
+                {savingMasivo ? 'Procesando...' : 'Confirmar venta'}
+              </button>
+            </div>
           </div>
         </div>
       )}

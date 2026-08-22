@@ -49,7 +49,9 @@ create table registro_leche (
 create table eventos_animal (
   id uuid default gen_random_uuid() primary key,
   animal_id uuid references animales(id) on delete cascade,
-  tipo text check (tipo in ('vacuna', 'tratamiento', 'parto', 'servicio', 'pesaje', 'otro')),
+  tipo text check (tipo in ('vacuna', 'tratamiento', 'parto', 'servicio', 'pesaje', 'otro', 'venta')),
+  -- MIGRATION: ALTER TABLE eventos_animal DROP CONSTRAINT IF EXISTS eventos_animal_tipo_check;
+  -- ALTER TABLE eventos_animal ADD CONSTRAINT eventos_animal_tipo_check CHECK (tipo in ('vacuna','tratamiento','parto','servicio','pesaje','otro','venta'));
   descripcion text not null,
   fecha date not null,
   costo numeric,

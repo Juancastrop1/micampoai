@@ -6,9 +6,9 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
 
 const valueProps = [
-  'Calendario de vacunas automático por animal',
-  'Proyección de ingresos y ciclos reproductivos',
-  'Resumen semanal directo a tu WhatsApp',
+  'Inventario completo de animales por finca y por lote',
+  'Registro y seguimiento de producción lechera',
+  'Historial de eventos, vacunas y ventas por animal',
 ]
 
 export default function LoginPage() {
@@ -99,8 +99,12 @@ export default function LoginPage() {
               margin: 0,
             }}
           >
-            La finca que se gestiona sola.
+            Software Ganadero.
           </h1>
+
+          <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '16px', color: 'rgba(250,248,244,0.6)', margin: '12px 0 0' }}>
+            Un Software exclusivo para la familia Castro &amp; Pepín.
+          </p>
 
           <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {valueProps.map((text) => (
@@ -139,7 +143,7 @@ export default function LoginPage() {
             zIndex: 1,
           }}
         >
-          Confiado por ganaderos en Colombia y Latinoamérica
+          Castro &amp; Pepín SAS
         </p>
       </div>
 

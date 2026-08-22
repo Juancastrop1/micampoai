@@ -6,9 +6,11 @@ import type { Finca } from '@/lib/types'
 
 type Metrics = {
   animalesActivos: number
+  hembrasActivas: number
+  machosActivos: number
+  numLotes: number
   produccionHoy: number
   ingresosSemana: number
-  proximasVacunas: number
 }
 
 const cardStyle: React.CSSProperties = {
@@ -40,32 +42,19 @@ export default function DashboardPage() {
 
     if (currentFinca) {
       const today = new Date().toISOString().split('T')[0]
-      const weekAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
-      // Week start = Monday of current week
       const _dn = new Date(); const _dd = _dn.getDay()
       const _dtm = _dd === 0 ? 6 : _dd - 1
       const _mnd = new Date(_dn); _mnd.setDate(_dn.getDate() - _dtm)
       const weekStart = _mnd.toISOString().split('T')[0]
 
-      const [animalesRes, lechHoyRes, lechSemRes, animalIdsRes] = await Promise.all([
+      const [animalesRes, hembrasRes, machosRes, lotesRes, lechHoyRes, lechSemRes] = await Promise.all([
         supabase.from('animales').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id).eq('estado', 'activo'),
+        supabase.from('animales').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id).eq('estado', 'activo').eq('sexo', 'hembra'),
+        supabase.from('animales').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id).eq('estado', 'activo').eq('sexo', 'macho'),
+        supabase.from('lotes').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id),
         supabase.from('registro_leche').select('litros').eq('finca_id', currentFinca.id).eq('fecha', today),
         supabase.from('registro_leche').select('litros, precio_litro').eq('finca_id', currentFinca.id).gte('fecha', weekStart).lte('fecha', today),
-        supabase.from('animales').select('id').eq('finca_id', currentFinca.id),
       ])
-
-      const ids = animalIdsRes.data?.map((a: { id: string }) => a.id) ?? []
-      let vacunasCount = 0
-      if (ids.length > 0) {
-        const vacRes = await supabase
-          .from('eventos_animal')
-          .select('id', { count: 'exact', head: true })
-          .in('animal_id', ids)
-          .eq('tipo', 'vacuna')
-          .gte('proxima_fecha', today)
-          .lte('proxima_fecha', weekAhead)
-        vacunasCount = vacRes.count ?? 0
-      }
 
       const produccionHoy = (lechHoyRes.data ?? []).reduce((s: number, r: { litros: number }) => s + r.litros, 0)
       const ingresosSemana = (lechSemRes.data ?? []).reduce(
@@ -75,9 +64,11 @@ export default function DashboardPage() {
 
       setMetrics({
         animalesActivos: animalesRes.count ?? 0,
+        hembrasActivas: hembrasRes.count ?? 0,
+        machosActivos: machosRes.count ?? 0,
+        numLotes: lotesRes.count ?? 0,
         produccionHoy,
         ingresosSemana,
-        proximasVacunas: vacunasCount,
       })
     }
     setLoading(false)
@@ -140,28 +131,21 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Metrics grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-        <div style={cardStyle}>
-          <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74' }}>Animales activos</span>
-          <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '40px', color: '#1a6b45', lineHeight: 1 }}>{metrics?.animalesActivos ?? '—'}</span>
-        </div>
-        <div style={cardStyle}>
-          <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74' }}>Producción hoy (L)</span>
-          <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '40px', color: '#1a6b45', lineHeight: 1 }}>{metrics ? metrics.produccionHoy.toFixed(1) : '—'}</span>
-        </div>
-        <div style={cardStyle}>
-          <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74' }}>Ingresos semana (COP)</span>
-          <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '36px', color: '#1a6b45', lineHeight: 1 }}>
-            {metrics ? `$${Math.round(metrics.ingresosSemana).toLocaleString('es-CO')}` : '—'}
-          </span>
-        </div>
-        <div style={cardStyle}>
-          <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74' }}>Próximas vacunas (7d)</span>
-          <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '40px', color: metrics && metrics.proximasVacunas > 0 ? '#8B1A1A' : '#1a6b45', lineHeight: 1 }}>
-            {metrics?.proximasVacunas ?? '—'}
-          </span>
-        </div>
+      {/* 6-card metrics grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+        {[
+          { label: 'Animales activos', value: metrics?.animalesActivos ?? '—', big: true },
+          { label: 'Hembras activas', value: metrics?.hembrasActivas ?? '—', big: true },
+          { label: 'Machos activos', value: metrics?.machosActivos ?? '—', big: true },
+          { label: 'Número de lotes', value: metrics?.numLotes ?? '—', big: true },
+          { label: 'Producción hoy (L)', value: metrics ? metrics.produccionHoy.toFixed(1) : '—', big: true },
+          { label: 'Ingresos semana (COP)', value: metrics ? `$${Math.round(metrics.ingresosSemana).toLocaleString('es-CO')}` : '—', big: false },
+        ].map(card => (
+          <div key={card.label} style={cardStyle}>
+            <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74' }}>{card.label}</span>
+            <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: card.big ? '40px' : '28px', color: '#1a6b45', lineHeight: 1 }}>{card.value}</span>
+          </div>
+        ))}
       </div>
 
       {/* Create finca modal */}

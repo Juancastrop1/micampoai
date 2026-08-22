@@ -53,7 +53,7 @@ export type ConfigFinca = {
 export type EventoAnimal = {
   id: string
   animal_id: string
-  tipo: 'vacuna' | 'tratamiento' | 'parto' | 'servicio' | 'pesaje' | 'otro'
+  tipo: 'vacuna' | 'tratamiento' | 'parto' | 'servicio' | 'pesaje' | 'otro' | 'venta'
   descripcion: string
   fecha: string
   costo: number | null
