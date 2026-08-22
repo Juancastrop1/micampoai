@@ -42,6 +42,19 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    href: '/dashboard/calendario',
+    label: 'Calendario',
+    exact: false,
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" fill="none" />
+        <path d="M5 1.5V4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M11 1.5V4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M2 7H14" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
 ]
 
 export function Sidebar({ email }: { email: string }) {
