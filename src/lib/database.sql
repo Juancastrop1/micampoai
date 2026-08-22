@@ -97,3 +97,18 @@ create policy "usuarios ven su leche" on registro_leche for all using (finca_id 
 create policy "usuarios ven eventos" on eventos_animal for all using (animal_id in (select id from animales where finca_id in (select id from fincas where user_id = auth.uid())));
 create policy "usuarios ven ventas" on ventas_animales for all using (finca_id in (select id from fincas where user_id = auth.uid()));
 create policy "usuarios ven config" on config_finca for all using (finca_id in (select id from fincas where user_id = auth.uid()));
+
+-- Notas mensuales por finca
+-- CORRE ESTO MANUALMENTE EN SUPABASE SQL EDITOR:
+create table notas_mes (
+  id uuid default gen_random_uuid() primary key,
+  finca_id uuid references fincas(id) on delete cascade,
+  anio integer not null,
+  mes integer not null,
+  contenido text not null default '',
+  updated_at timestamp with time zone default now(),
+  unique(finca_id, anio, mes)
+);
+
+alter table notas_mes enable row level security;
+create policy "usuarios ven sus notas" on notas_mes for all using (finca_id in (select id from fincas where user_id = auth.uid()));

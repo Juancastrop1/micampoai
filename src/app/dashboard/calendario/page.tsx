@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { Finca } from '@/lib/types'
 
@@ -71,9 +71,18 @@ export default function CalendarioPage() {
   const [leche, setLeche] = useState<LecheRow[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const [notas, setNotas] = useState('')
+  const [savedIndicator, setSavedIndicator] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadData() }, [])
+
+  useEffect(() => {
+    if (!finca) return
+    loadNotas(finca.id, year, month)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month, finca])
 
   async function loadData() {
     const supabase = createClient()
@@ -96,6 +105,33 @@ export default function CalendarioPage() {
     setEventos((eventosRes.data ?? []) as unknown as EventoRow[])
     setLeche(lecheRes.data ?? [])
     setLoading(false)
+  }
+
+  async function loadNotas(fincaId: string, y: number, m: number) {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('notas_mes')
+      .select('contenido')
+      .eq('finca_id', fincaId)
+      .eq('anio', y)
+      .eq('mes', m + 1)
+      .maybeSingle()
+    setNotas(data?.contenido ?? '')
+  }
+
+  function handleNotasChange(value: string) {
+    setNotas(value)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      if (!finca) return
+      const supabase = createClient()
+      await supabase.from('notas_mes').upsert(
+        { finca_id: finca.id, anio: year, mes: month + 1, contenido: value, updated_at: new Date().toISOString() },
+        { onConflict: 'finca_id,anio,mes' }
+      )
+      setSavedIndicator(true)
+      setTimeout(() => setSavedIndicator(false), 2000)
+    }, 1000)
   }
 
   function prevMonth() {
@@ -390,6 +426,40 @@ export default function CalendarioPage() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Notas del mes */}
+      <div style={{ marginTop: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+          <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#1c1a17', margin: 0 }}>
+            Notas de {MONTHS_ES[month]} {year}
+          </h2>
+          {savedIndicator && (
+            <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#1a6b45', fontWeight: 500 }}>
+              Guardado
+            </span>
+          )}
+        </div>
+        <textarea
+          value={notas}
+          onChange={e => handleNotasChange(e.target.value)}
+          placeholder={`Escribe las notas de ${MONTHS_ES[month].toLowerCase()}...`}
+          style={{
+            width: '100%',
+            minHeight: '120px',
+            padding: '16px',
+            border: '1px solid rgba(60,45,30,0.15)',
+            borderRadius: '12px',
+            backgroundColor: '#ffffff',
+            fontFamily: 'var(--font-sans), sans-serif',
+            fontSize: '14px',
+            color: '#1c1a17',
+            resize: 'vertical',
+            outline: 'none',
+            lineHeight: 1.6,
+            boxSizing: 'border-box',
+          }}
+        />
       </div>
     </div>
   )
