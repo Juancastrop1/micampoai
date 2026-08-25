@@ -112,3 +112,7 @@ create table notas_mes (
 
 alter table notas_mes enable row level security;
 create policy "usuarios ven sus notas" on notas_mes for all using (finca_id in (select id from fincas where user_id = auth.uid()));
+
+-- Para registro de leche por lote (división entre hembras activas)
+-- CORRE ESTO MANUALMENTE EN SUPABASE SQL EDITOR:
+-- ALTER TABLE registro_leche ADD COLUMN IF NOT EXISTS generado_por_lote boolean default false;

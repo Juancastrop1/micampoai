@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
-import type { Animal, EventoAnimal, Lote } from '@/lib/types'
+import type { Animal, EventoAnimal, Lote, RegistroLeche } from '@/lib/types'
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '10px 14px', border: '1px solid rgba(60,45,30,0.18)',
@@ -53,6 +53,9 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
   const [eventoToDelete, setEventoToDelete] = useState<EventoAnimal | null>(null)
   const [deletingEvento, setDeletingEvento] = useState(false)
 
+  // Leche (hembras only)
+  const [lecheAnimal, setLecheAnimal] = useState<RegistroLeche[]>([])
+
   // Form fields
   const [codigo, setCodigo] = useState('')
   const [nombre, setNombre] = useState('')
@@ -87,8 +90,14 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
       setLoteId(a.lote_id ?? '')
       setPeso(a.peso_actual != null ? String(a.peso_actual) : '')
       setNotas(a.notas ?? '')
-      const lotesRes = await supabase.from('lotes').select('*').eq('finca_id', a.finca_id)
+      const [lotesRes, lecheRes] = await Promise.all([
+        supabase.from('lotes').select('*').eq('finca_id', a.finca_id),
+        a.sexo === 'hembra'
+          ? supabase.from('registro_leche').select('*').eq('animal_id', a.id).order('fecha', { ascending: false })
+          : Promise.resolve({ data: [] }),
+      ])
       setLotes(lotesRes.data ?? [])
+      setLecheAnimal((lecheRes.data ?? []) as RegistroLeche[])
     }
     setEventos((eventosRes.data ?? []) as EventoAnimal[])
     setLoading(false)
@@ -252,6 +261,69 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
           </div>
         </form>
       </div>
+
+      {/* Leche section — hembras only */}
+      {animal.sexo === 'hembra' && (() => {
+        const now = new Date()
+        const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
+        const lastMonthD = new Date(now.getFullYear(), now.getMonth()-1, 1)
+        const lastMonth = `${lastMonthD.getFullYear()}-${String(lastMonthD.getMonth()+1).padStart(2,'0')}`
+
+        const thisMonthRegs = lecheAnimal.filter(r => r.fecha.startsWith(thisMonth))
+        const lastMonthRegs = lecheAnimal.filter(r => r.fecha.startsWith(lastMonth))
+
+        const prodEsteMes = thisMonthRegs.reduce((s, r) => s + r.litros, 0)
+        const prodMesAnterior = lastMonthRegs.reduce((s, r) => s + r.litros, 0)
+        const diasConRegistro = new Set(thisMonthRegs.map(r => r.fecha)).size
+        const promedioDiario = diasConRegistro > 0 ? prodEsteMes / diasConRegistro : 0
+        const ultimos10 = lecheAnimal.slice(0, 10)
+
+        return (
+          <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '24px', marginBottom: '24px' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#1c1a17', margin: '0 0 18px' }}>Producción de leche</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
+              {[
+                { label: 'Este mes (L)', value: prodEsteMes.toFixed(1) },
+                { label: 'Promedio diario (L)', value: promedioDiario.toFixed(1) },
+                { label: 'Mes anterior (L)', value: prodMesAnterior.toFixed(1) },
+              ].map(m => (
+                <div key={m.label} style={{ backgroundColor: '#faf8f4', borderRadius: '10px', padding: '14px 16px', border: '1px solid rgba(60,45,30,0.08)' }}>
+                  <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>{m.label}</span>
+                  <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '28px', color: '#1a6b45', lineHeight: 1 }}>{m.value}</span>
+                </div>
+              ))}
+            </div>
+            {ultimos10.length === 0 ? (
+              <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', margin: 0 }}>Sin registros de leche para este animal.</p>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(60,45,30,0.10)' }}>
+                      {['Fecha','Litros','Precio/L','Ingreso'].map(col => (
+                        <th key={col} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 500, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', whiteSpace: 'nowrap' }}>{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ultimos10.map((r, i) => {
+                      const ingreso = r.litros * (r.precio_litro ?? 0)
+                      return (
+                        <tr key={r.id} style={{ borderBottom: i < ultimos10.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
+                          <td style={{ padding: '9px 12px', color: '#1c1a17' }}>{r.fecha}</td>
+                          <td style={{ padding: '9px 12px', color: '#1c1a17', fontWeight: 500 }}>{r.litros} L</td>
+                          <td style={{ padding: '9px 12px', color: '#4a4540' }}>{r.precio_litro ? `$${r.precio_litro}` : '—'}</td>
+                          <td style={{ padding: '9px 12px', color: '#1a6b45' }}>{ingreso > 0 ? `$${Math.round(ingreso).toLocaleString('es-CO')}` : '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Event history */}
       <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', overflow: 'hidden' }}>

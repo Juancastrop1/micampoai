@@ -39,6 +39,7 @@ export type RegistroLeche = {
   fecha: string
   litros: number
   precio_litro: number | null
+  generado_por_lote?: boolean | null
   created_at: string
 }
 
