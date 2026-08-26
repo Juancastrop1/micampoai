@@ -39,6 +39,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
   // Confirm dialog for vendido/muerto
   const [showConfirm, setShowConfirm] = useState(false)
@@ -139,6 +140,11 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!animal) return
+    setFormError(null)
+    if (fechaNac && fechaNac > today) {
+      setFormError('La fecha de nacimiento no puede ser futura')
+      return
+    }
     const changingToInactive = (estado === 'vendido' || estado === 'muerto') && animal.estado !== estado
     if (changingToInactive) {
       setShowConfirm(true)
@@ -233,20 +239,32 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
             <div>
               <label style={labelStyle}>Fecha de nacimiento</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <input type="date" value={fechaNac} onChange={e => setFechaNac(e.target.value)} style={{ ...inputStyle, flex: '1 1 auto' }} />
+                <input type="date" value={fechaNac} onChange={e => setFechaNac(e.target.value)} max={today} style={{ ...inputStyle, flex: '1 1 auto' }} />
                 {fechaNac && (() => {
-                  const nac = new Date(fechaNac)
-                  const hoy = new Date()
-                  let anios = hoy.getFullYear() - nac.getFullYear()
-                  let meses = hoy.getMonth() - nac.getMonth()
+                  const nac = new Date(fechaNac + 'T00:00:00')
+                  const isInactive = animal.estado === 'vendido' || animal.estado === 'muerto'
+                  const ventaEv = eventos.filter(e => (e.tipo as string) === 'venta').sort((a, b) => b.fecha.localeCompare(a.fecha))[0]
+                  const refStr = isInactive
+                    ? (ventaEv?.fecha ?? (animal as Animal & { updated_at?: string }).updated_at?.split('T')[0] ?? today)
+                    : today
+                  const hasta = new Date(refStr + 'T00:00:00')
+                  let anios = hasta.getFullYear() - nac.getFullYear()
+                  let meses = hasta.getMonth() - nac.getMonth()
                   if (meses < 0) { anios--; meses += 12 }
-                  if (hoy.getDate() < nac.getDate()) { meses--; if (meses < 0) { anios--; meses += 12 } }
+                  if (hasta.getDate() < nac.getDate()) { meses--; if (meses < 0) { anios--; meses += 12 } }
                   const label = anios > 0
                     ? `${anios} año${anios !== 1 ? 's' : ''}${meses > 0 ? ` ${meses} mes${meses !== 1 ? 'es' : ''}` : ''}`
                     : meses > 0
                     ? `${meses} mes${meses !== 1 ? 'es' : ''}`
-                    : `${Math.max(0, Math.floor((hoy.getTime() - nac.getTime()) / 86400000))} días`
-                  return <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', whiteSpace: 'nowrap' }}>({label})</span>
+                    : `${Math.max(0, Math.floor((hasta.getTime() - nac.getTime()) / 86400000))} días`
+                  return (
+                    <>
+                      <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', whiteSpace: 'nowrap' }}>({label})</span>
+                      {isInactive && (
+                        <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#8c7f74', whiteSpace: 'nowrap' }}>· al momento de {animal.estado === 'vendido' ? 'la venta' : 'la muerte'}</span>
+                      )}
+                    </>
+                  )
                 })()}
               </div>
             </div>
@@ -271,6 +289,9 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
             <div><label style={labelStyle}>Peso actual (kg)</label><input type="number" step="0.1" value={peso} onChange={e => setPeso(e.target.value)} placeholder="350" style={inputStyle} /></div>
           </div>
           <div><label style={labelStyle}>Notas</label><textarea value={notas} onChange={e => setNotas(e.target.value)} rows={3} placeholder="Observaciones..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
+          {formError && (
+            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8B1A1A', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', margin: 0 }}>{formError}</p>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button type="submit" disabled={saving}
               style={{ padding: '10px 24px', backgroundColor: '#1a6b45', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>

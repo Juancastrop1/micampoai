@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { Animal, EventoAnimal, Finca, Lote } from '@/lib/types'
 
@@ -37,8 +38,30 @@ const emptyForm: FormState = {
   codigo: '', nombre: '', raza: '', sexo: '', fecha_nacimiento: '',
   proposito: '', lote_id: '', peso_actual: '', notas: '',
 }
-type SortCol = 'codigo' | 'nombre' | 'raza' | 'lote'
+type SortCol = 'codigo' | 'nombre' | 'raza' | 'lote' | 'edad'
 type MasivoForm = { tipo: string; descripcion: string; fecha: string; costo: string; proxima_fecha: string; precioVentaTotal: string; comprador: string }
+
+function calcEdad(fechaNac: string | null | undefined, refDate: string): string {
+  if (!fechaNac) return '—'
+  const nac = new Date(fechaNac + 'T00:00:00')
+  const hasta = new Date(refDate + 'T00:00:00')
+  let anios = hasta.getFullYear() - nac.getFullYear()
+  let meses = hasta.getMonth() - nac.getMonth()
+  if (meses < 0) { anios--; meses += 12 }
+  if (hasta.getDate() < nac.getDate()) { meses--; if (meses < 0) { anios--; meses += 12 } }
+  if (anios < 0 || (anios === 0 && meses < 0)) return '—'
+  return anios > 0 ? `${anios}a${meses > 0 ? ` ${meses}m` : ''}` : meses > 0 ? `${meses}m` : '<1m'
+}
+
+function BuscarSync({ setBusqueda }: { setBusqueda: (v: string) => void }) {
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    const b = searchParams.get('buscar')
+    if (b) setBusqueda(b)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return null
+}
 
 export default function AnimalesPage() {
   const [finca, setFinca] = useState<Finca | null>(null)
@@ -50,6 +73,7 @@ export default function AnimalesPage() {
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm)
+  const [formError, setFormError] = useState<string | null>(null)
 
   // Filters
   const [filterLote, setFilterLote] = useState('')
@@ -59,11 +83,13 @@ export default function AnimalesPage() {
 
   // Search
   const [busqueda, setBusqueda] = useState('')
-  const busquedaRef = useRef(false)
 
   // Sorting
   const [sortCol, setSortCol] = useState<SortCol | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  // Venta fecha map for inactive animals (animal_id -> most recent venta event date)
+  const [ventaFechaMap, setVentaFechaMap] = useState<Record<string, string>>({})
 
   // Lotes management
   const [showLotesModal, setShowLotesModal] = useState(false)
@@ -85,12 +111,6 @@ export default function AnimalesPage() {
   const [masivoError, setMasivoError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && !busquedaRef.current) {
-      const params = new URLSearchParams(window.location.search)
-      const b = params.get('buscar')
-      if (b) setBusqueda(b)
-      busquedaRef.current = true
-    }
     loadData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -105,14 +125,39 @@ export default function AnimalesPage() {
       supabase.from('animales').select('*, lotes(nombre)').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }),
       supabase.from('lotes').select('*').eq('finca_id', currentFinca.id),
     ])
-    setAnimales((animalesRes.data ?? []) as Animal[])
+    const animalesData = (animalesRes.data ?? []) as Animal[]
+    setAnimales(animalesData)
     setLotes(lotesRes.data ?? [])
+
+    // Load most recent venta event date for inactive animals
+    const inactiveIds = animalesData.filter(a => a.estado !== 'activo').map(a => a.id)
+    if (inactiveIds.length > 0) {
+      const ventaRes = await supabase
+        .from('eventos_animal')
+        .select('animal_id, fecha')
+        .eq('tipo', 'venta')
+        .in('animal_id', inactiveIds)
+        .order('fecha', { ascending: false })
+      const map: Record<string, string> = {}
+      ;(ventaRes.data ?? []).forEach((e: { animal_id: string; fecha: string }) => {
+        if (!map[e.animal_id]) map[e.animal_id] = e.fecha
+      })
+      setVentaFechaMap(map)
+    } else {
+      setVentaFechaMap({})
+    }
+
     setLoading(false)
   }
 
   async function handleAddAnimal(e: React.FormEvent) {
     e.preventDefault()
     if (!finca) return
+    setFormError(null)
+    if (form.fecha_nacimiento && form.fecha_nacimiento > todayStr) {
+      setFormError('La fecha de nacimiento no puede ser futura')
+      return
+    }
     setSaving(true)
     const supabase = createClient()
     await supabase.from('animales').insert({
@@ -263,6 +308,12 @@ export default function AnimalesPage() {
   const totalAnimales = animales.length
 
   const display = sortCol ? [...filtered].sort((a, b) => {
+    if (sortCol === 'edad') {
+      // asc = youngest first → descending fecha_nacimiento
+      const av = a.fecha_nacimiento ?? ''
+      const bv = b.fecha_nacimiento ?? ''
+      return sortDir === 'asc' ? bv.localeCompare(av, 'es') : av.localeCompare(bv, 'es')
+    }
     let av = '', bv = ''
     if (sortCol === 'codigo') { av = a.codigo; bv = b.codigo }
     else if (sortCol === 'nombre') { av = a.nombre ?? ''; bv = b.nombre ?? '' }
@@ -282,11 +333,34 @@ export default function AnimalesPage() {
 
   const filterSelectStyle: React.CSSProperties = { padding: '8px 12px', border: '1px solid rgba(60,45,30,0.15)', borderRadius: '8px', backgroundColor: '#ffffff', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', cursor: 'pointer', outline: 'none' }
 
-  if (loading) return <div style={{ padding: '32px', fontFamily: 'var(--font-sans), sans-serif', color: '#8c7f74' }}>Cargando...</div>
-  if (!finca) return <div style={{ padding: '32px', fontFamily: 'var(--font-sans), sans-serif', color: '#4a4540' }}>Primero crea tu finca en el <a href="/dashboard" style={{ color: '#1a6b45' }}>Dashboard</a>.</div>
+  function getEdadDisplay(a: Animal): string {
+    if (!a.fecha_nacimiento) return '—'
+    const isActive = a.estado === 'activo'
+    const refDate = isActive
+      ? todayStr
+      : (ventaFechaMap[a.id] ?? (a as Animal & { updated_at?: string }).updated_at?.split('T')[0] ?? todayStr)
+    const label = calcEdad(a.fecha_nacimiento, refDate)
+    if (label === '—') return '—'
+    return isActive ? label : `(${label})`
+  }
+
+  const buscarNode = (
+    <Suspense fallback={null}>
+      <BuscarSync setBusqueda={setBusqueda} />
+    </Suspense>
+  )
+
+  if (loading) return (
+    <>{buscarNode}<div style={{ padding: '32px', fontFamily: 'var(--font-sans), sans-serif', color: '#8c7f74' }}>Cargando...</div></>
+  )
+  if (!finca) return (
+    <>{buscarNode}<div style={{ padding: '32px', fontFamily: 'var(--font-sans), sans-serif', color: '#4a4540' }}>Primero crea tu finca en el <a href="/dashboard" style={{ color: '#1a6b45' }}>Dashboard</a>.</div></>
+  )
 
   return (
     <div style={{ padding: '32px' }}>
+      {buscarNode}
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
@@ -375,6 +449,7 @@ export default function AnimalesPage() {
               <tr style={{ borderBottom: '1px solid rgba(60,45,30,0.10)' }}>
                 {([
                   { k: 'codigo', l: 'Código', s: true },
+                  { k: 'edad', l: 'Edad', s: true },
                   { k: 'nombre', l: 'Nombre', s: true },
                   { k: 'raza', l: 'Raza', s: true },
                   { k: 'lote', l: 'Lote', s: true },
@@ -393,10 +468,13 @@ export default function AnimalesPage() {
             </thead>
             <tbody>
               {displayFinal.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '32px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin animales registrados</td></tr>
+                <tr><td colSpan={9} style={{ padding: '32px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin animales registrados</td></tr>
               ) : displayFinal.map((a, i) => (
                 <tr key={a.id} style={{ borderBottom: i < displayFinal.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
                   <td style={{ padding: '12px 16px', fontWeight: 500, color: '#1c1a17' }}>{a.codigo}</td>
+                  <td style={{ padding: '12px 16px', color: a.estado !== 'activo' ? '#8c7f74' : '#4a4540', fontStyle: a.estado !== 'activo' ? 'italic' : 'normal', whiteSpace: 'nowrap' }}>
+                    {getEdadDisplay(a)}
+                  </td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.nombre ?? '—'}</td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.raza ?? '—'}</td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.lotes?.nombre ?? '—'}</td>
@@ -646,25 +724,31 @@ export default function AnimalesPage() {
 
       {/* ---- ADD ANIMAL MODAL ---- */}
       {showModal && (
-        <div onClick={() => setShowModal(false)}
+        <div onClick={() => { setShowModal(false); setFormError(null) }}
           style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px' }}>
           <div onClick={e => e.stopPropagation()}
             style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '560px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '24px', color: '#1c1a17', margin: '0 0 24px' }}>Agregar animal</h2>
+            {formError && (
+              <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8B1A1A', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', margin: '0 0 16px' }}>{formError}</p>
+            )}
             <form onSubmit={handleAddAnimal} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 <div><label style={labelStyle}>Código *</label><input value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} placeholder="A-001" required style={inputStyle} /></div>
                 <div><label style={labelStyle}>Nombre</label><input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Lucero" style={inputStyle} /></div>
                 <div><label style={labelStyle}>Raza</label><input value={form.raza} onChange={e => setForm(f => ({ ...f, raza: e.target.value }))} placeholder="Holstein" style={inputStyle} /></div>
                 <div><label style={labelStyle}>Sexo</label><select value={form.sexo} onChange={e => setForm(f => ({ ...f, sexo: e.target.value }))} style={selectStyle}><option value="">Seleccionar</option><option value="hembra">Hembra</option><option value="macho">Macho</option></select></div>
-                <div><label style={labelStyle}>Fecha de nacimiento</label><input type="date" value={form.fecha_nacimiento} onChange={e => setForm(f => ({ ...f, fecha_nacimiento: e.target.value }))} style={inputStyle} /></div>
+                <div>
+                  <label style={labelStyle}>Fecha de nacimiento</label>
+                  <input type="date" value={form.fecha_nacimiento} max={todayStr} onChange={e => setForm(f => ({ ...f, fecha_nacimiento: e.target.value }))} style={inputStyle} />
+                </div>
                 <div><label style={labelStyle}>Propósito</label><select value={form.proposito} onChange={e => setForm(f => ({ ...f, proposito: e.target.value }))} style={selectStyle}><option value="">Seleccionar</option><option value="leche">Leche</option><option value="carne">Carne</option><option value="doble_proposito">Doble propósito</option></select></div>
                 <div><label style={labelStyle}>Lote</label><select value={form.lote_id} onChange={e => setForm(f => ({ ...f, lote_id: e.target.value }))} style={selectStyle}><option value="">Sin lote</option>{lotes.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}</select></div>
                 <div><label style={labelStyle}>Peso actual (kg)</label><input type="number" step="0.1" value={form.peso_actual} onChange={e => setForm(f => ({ ...f, peso_actual: e.target.value }))} placeholder="350" style={inputStyle} /></div>
               </div>
               <div><label style={labelStyle}>Notas</label><textarea value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} rows={2} placeholder="Observaciones adicionales..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                <button type="button" onClick={() => { setShowModal(false); setForm(emptyForm) }}
+                <button type="button" onClick={() => { setShowModal(false); setForm(emptyForm); setFormError(null) }}
                   style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>Cancelar</button>
                 <button type="submit" disabled={saving}
                   style={{ padding: '10px 24px', backgroundColor: '#1a6b45', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
