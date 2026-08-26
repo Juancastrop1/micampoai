@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { Finca } from '@/lib/types'
 
@@ -18,6 +19,7 @@ type ProximoEvento = {
   tipo: string
   descripcion: string
   proxima_fecha: string
+  animal_id: string | null
   animales: { codigo: string; nombre: string | null; lotes: { nombre: string } | null } | null
 }
 
@@ -27,6 +29,7 @@ type ActivityItem = {
   label: string
   icon: 'animal' | 'leche' | 'evento'
   tipo?: string
+  href: string
 }
 
 const typeColors: Record<string, string> = {
@@ -42,15 +45,11 @@ const typeLabels: Record<string, string> = {
   venta: 'Venta', parto: 'Parto', servicio: 'Servicio', otro: 'Otro',
 }
 
-const cardStyle: React.CSSProperties = {
-  backgroundColor: '#ffffff',
-  border: '1px solid rgba(60,45,30,0.10)',
-  borderRadius: '12px',
-  padding: '24px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
-}
+const ArrowIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ position: 'absolute', top: '12px', right: '12px' }}>
+    <path d="M2 8L8 2M8 2H4M8 2V6" stroke="rgba(60,45,30,0.2)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -85,6 +84,7 @@ function formatShort(dateStr: string): string {
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [finca, setFinca] = useState<Finca | null | undefined>(undefined)
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [loading, setLoading] = useState(true)
@@ -96,6 +96,11 @@ export default function DashboardPage() {
   const [weekLeche, setWeekLeche] = useState<{ start: string; end: string; litros: number }[]>([])
   const [proximosEventos, setProximosEventos] = useState<ProximoEvento[]>([])
   const [actividad, setActividad] = useState<ActivityItem[]>([])
+
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null)
+  const [hoveredEvento, setHoveredEvento] = useState<string | null>(null)
+  const [hoveredAct, setHoveredAct] = useState<string | null>(null)
+  const [hoveredChart, setHoveredChart] = useState(false)
 
   useEffect(() => { loadData() }, [])
 
@@ -124,20 +129,15 @@ export default function DashboardPage() {
         supabase.from('lotes').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id),
         supabase.from('registro_leche').select('litros').eq('finca_id', currentFinca.id).eq('fecha', today),
         supabase.from('registro_leche').select('litros, precio_litro').eq('finca_id', currentFinca.id).gte('fecha', weekStart).lte('fecha', today),
-        // leche for mini chart (last 4 weeks)
         supabase.from('registro_leche').select('fecha, litros').eq('finca_id', currentFinca.id).gte('fecha', fourWeeksAgo).not('generado_por_lote', 'eq', true),
-        // proximos eventos
         supabase.from('eventos_animal')
-          .select('id, tipo, descripcion, proxima_fecha, animales(codigo, nombre, lotes(nombre))')
+          .select('id, tipo, descripcion, proxima_fecha, animal_id, animales(codigo, nombre, lotes(nombre))')
           .gte('proxima_fecha', today)
           .order('proxima_fecha', { ascending: true })
           .limit(5),
-        // recent animales
         supabase.from('animales').select('id, codigo, nombre, created_at').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(5),
-        // recent leche
         supabase.from('registro_leche').select('id, litros, created_at').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(5),
-        // recent eventos
-        supabase.from('eventos_animal').select('id, tipo, created_at, animales(codigo)').order('created_at', { ascending: false }).limit(5),
+        supabase.from('eventos_animal').select('id, tipo, created_at, animales(id, codigo)').order('created_at', { ascending: false }).limit(5),
       ])
 
       const produccionHoy = (lechHoyRes.data ?? []).reduce((s: number, r: { litros: number }) => s + r.litros, 0)
@@ -152,7 +152,6 @@ export default function DashboardPage() {
         produccionHoy, ingresosSemana,
       })
 
-      // Mini chart: 4 weeks (oldest to newest)
       const lecheRows = (lecheChartRes.data ?? []) as { fecha: string; litros: number }[]
       const weeks4 = Array.from({ length: 4 }, (_, i) => getWeekNBack(3 - i))
       const wl = weeks4.map(w => ({
@@ -163,27 +162,29 @@ export default function DashboardPage() {
 
       setProximosEventos((proximosRes.data ?? []) as unknown as ProximoEvento[])
 
-      // Activity feed: merge 3 sources
       type AR = { id: string; codigo: string; nombre: string | null; created_at: string }
       type LR = { id: string; litros: number; created_at: string }
-      type ER = { id: string; tipo: string; created_at: string; animales: { codigo: string } | null }
+      type ER = { id: string; tipo: string; created_at: string; animales: { id: string; codigo: string } | null }
 
       const acts: ActivityItem[] = [
         ...(animRecRes.data ?? []).map((a: AR) => ({
           key: `a-${a.id}`, created_at: a.created_at,
           label: `Animal ${a.nombre ?? a.codigo} agregado`,
           icon: 'animal' as const,
+          href: `/dashboard/animales/${a.id}`,
         })),
         ...(lechRecRes.data ?? []).map((r: LR) => ({
           key: `l-${r.id}`, created_at: r.created_at,
           label: `${r.litros}L registrados`,
           icon: 'leche' as const,
+          href: '/dashboard/leche',
         })),
         ...((evRecRes.data ?? []) as unknown as ER[]).map((e: ER) => ({
           key: `e-${e.id}`, created_at: e.created_at,
           label: `${typeLabels[e.tipo] ?? e.tipo}${e.animales ? ` — ${e.animales.codigo}` : ''}`,
           icon: 'evento' as const,
           tipo: e.tipo,
+          href: e.animales?.id ? `/dashboard/animales/${e.animales.id}` : '/dashboard/eventos',
         })),
       ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5)
       setActividad(acts)
@@ -208,9 +209,32 @@ export default function DashboardPage() {
 
   const maxLeche = Math.max(...weekLeche.map(w => w.litros), 1)
 
+  const cardBase: React.CSSProperties = {
+    position: 'relative',
+    backgroundColor: '#ffffff',
+    border: '1px solid rgba(60,45,30,0.10)',
+    borderRadius: '12px',
+    padding: '24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    cursor: 'pointer',
+    textDecoration: 'none',
+    transition: 'background-color 0.12s',
+  }
+
   if (loading || finca === undefined) {
     return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#8c7f74', fontFamily: 'var(--font-sans), sans-serif' }}>Cargando...</div>
   }
+
+  const metricCards = [
+    { label: 'Animales activos', value: metrics?.animalesActivos ?? '—', big: true, href: '/dashboard/animales' },
+    { label: 'Hembras activas', value: metrics?.hembrasActivas ?? '—', big: true, href: '/dashboard/animales' },
+    { label: 'Machos activos', value: metrics?.machosActivos ?? '—', big: true, href: '/dashboard/animales' },
+    { label: 'Número de lotes', value: metrics?.numLotes ?? '—', big: true, href: '/dashboard/animales' },
+    { label: 'Producción hoy (L)', value: metrics ? metrics.produccionHoy.toFixed(1) : '—', big: true, href: '/dashboard/leche' },
+    { label: 'Ingresos semana (COP)', value: metrics ? `$${Math.round(metrics.ingresosSemana).toLocaleString('es-CO')}` : '—', big: false, href: '/dashboard/leche' },
+  ]
 
   return (
     <div style={{ padding: '32px', maxWidth: '960px' }}>
@@ -236,24 +260,31 @@ export default function DashboardPage() {
 
       {/* 6-card metrics grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
-        {[
-          { label: 'Animales activos', value: metrics?.animalesActivos ?? '—', big: true },
-          { label: 'Hembras activas', value: metrics?.hembrasActivas ?? '—', big: true },
-          { label: 'Machos activos', value: metrics?.machosActivos ?? '—', big: true },
-          { label: 'Número de lotes', value: metrics?.numLotes ?? '—', big: true },
-          { label: 'Producción hoy (L)', value: metrics ? metrics.produccionHoy.toFixed(1) : '—', big: true },
-          { label: 'Ingresos semana (COP)', value: metrics ? `$${Math.round(metrics.ingresosSemana).toLocaleString('es-CO')}` : '—', big: false },
-        ].map(card => (
-          <div key={card.label} style={cardStyle}>
+        {metricCards.map(card => (
+          <div key={card.label}
+            style={{ ...cardBase, backgroundColor: hoveredCard === card.label ? 'rgba(60,45,30,0.03)' : '#ffffff' }}
+            onClick={() => router.push(card.href)}
+            onMouseEnter={() => setHoveredCard(card.label)}
+            onMouseLeave={() => setHoveredCard(null)}>
+            <ArrowIcon />
             <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74' }}>{card.label}</span>
             <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: card.big ? '40px' : '28px', color: '#1a6b45', lineHeight: 1 }}>{card.value}</span>
           </div>
         ))}
       </div>
 
-      {/* Mini bar chart — full width */}
+      {/* Mini bar chart — clickable → /leche?tab=historial */}
       {finca && (
-        <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px', marginBottom: '20px' }}>
+        <div
+          onClick={() => router.push('/dashboard/leche?tab=historial')}
+          onMouseEnter={() => setHoveredChart(true)}
+          onMouseLeave={() => setHoveredChart(false)}
+          style={{
+            backgroundColor: hoveredChart ? 'rgba(60,45,30,0.01)' : '#ffffff',
+            border: '1px solid rgba(60,45,30,0.10)',
+            borderRadius: '12px', padding: '20px 24px', marginBottom: '20px',
+            cursor: 'pointer', transition: 'background-color 0.12s',
+          }}>
           <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 600, color: '#4a4540', display: 'block', marginBottom: '14px' }}>Producción semanal (últimas 4 semanas)</span>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '80px' }}>
             {weekLeche.map((w, i) => {
@@ -293,27 +324,41 @@ export default function DashboardPage() {
               <p style={{ padding: '20px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', margin: 0 }}>Sin eventos programados.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {proximosEventos.map((ev, i) => (
-                  <div key={ev.id} style={{ padding: '12px 20px', borderBottom: i < proximosEventos.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>{ev.proxima_fecha}</span>
-                      <span style={{
-                        backgroundColor: typeBg[ev.tipo] ?? '#f3f4f6',
-                        color: typeColors[ev.tipo] ?? '#9ca3af',
-                        padding: '1px 7px', borderRadius: '12px', fontSize: '11px', fontWeight: 500,
+                {proximosEventos.map((ev, i) => {
+                  const evHref = ev.animal_id ? `/dashboard/animales/${ev.animal_id}` : '/dashboard/eventos'
+                  return (
+                    <div key={ev.id}
+                      onClick={() => router.push(evHref)}
+                      onMouseEnter={() => setHoveredEvento(ev.id)}
+                      onMouseLeave={() => setHoveredEvento(null)}
+                      style={{
+                        padding: '12px 20px',
+                        borderBottom: i < proximosEventos.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none',
+                        display: 'flex', flexDirection: 'column', gap: '4px',
+                        cursor: 'pointer',
+                        backgroundColor: hoveredEvento === ev.id ? 'rgba(60,45,30,0.03)' : 'transparent',
+                        transition: 'background-color 0.1s',
                       }}>
-                        {typeLabels[ev.tipo] ?? ev.tipo}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>{ev.proxima_fecha}</span>
+                        <span style={{
+                          backgroundColor: typeBg[ev.tipo] ?? '#f3f4f6',
+                          color: typeColors[ev.tipo] ?? '#9ca3af',
+                          padding: '1px 7px', borderRadius: '12px', fontSize: '11px', fontWeight: 500,
+                        }}>
+                          {typeLabels[ev.tipo] ?? ev.tipo}
+                        </span>
+                      </div>
+                      <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#1c1a17', fontWeight: 500 }}>{ev.descripcion}</span>
+                      {ev.animales && (
+                        <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>
+                          {ev.animales.nombre ?? ev.animales.codigo}
+                          {ev.animales.lotes?.nombre && ` · ${ev.animales.lotes.nombre}`}
+                        </span>
+                      )}
                     </div>
-                    <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#1c1a17', fontWeight: 500 }}>{ev.descripcion}</span>
-                    {ev.animales && (
-                      <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>
-                        {ev.animales.nombre ?? ev.animales.codigo}
-                        {ev.animales.lotes?.nombre && ` · ${ev.animales.lotes.nombre}`}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -335,7 +380,18 @@ export default function DashboardPage() {
                     : <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke={typeColors[act.tipo ?? ''] ?? '#9ca3af'} strokeWidth="1.3"/><path d="M6 3v3.5L8 8" stroke={typeColors[act.tipo ?? ''] ?? '#9ca3af'} strokeWidth="1.2" strokeLinecap="round"/></svg>
 
                   return (
-                    <div key={act.key} style={{ padding: '11px 20px', borderBottom: i < actividad.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div key={act.key}
+                      onClick={() => router.push(act.href)}
+                      onMouseEnter={() => setHoveredAct(act.key)}
+                      onMouseLeave={() => setHoveredAct(null)}
+                      style={{
+                        padding: '11px 20px',
+                        borderBottom: i < actividad.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none',
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        cursor: 'pointer',
+                        backgroundColor: hoveredAct === act.key ? 'rgba(60,45,30,0.03)' : 'transparent',
+                        transition: 'background-color 0.1s',
+                      }}>
                       <div style={{ width: '28px', height: '28px', borderRadius: '8px', backgroundColor: '#faf8f4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         {iconEl}
                       </div>

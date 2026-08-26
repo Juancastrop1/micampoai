@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { Animal, ConfigFinca, Finca, Lote, RegistroLeche } from '@/lib/types'
 
@@ -15,6 +15,7 @@ const labelStyle: React.CSSProperties = {
 }
 
 const MONTHS_SHORT = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -31,10 +32,30 @@ function getWeekBounds(anchor: Date): { start: string; end: string } {
   const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
   return { start: toDateStr(mon), end: toDateStr(sun) }
 }
-function getWeekNBack(n: number): { start: string; end: string } {
-  const d = new Date(); d.setDate(d.getDate() - n * 7)
-  return getWeekBounds(d)
+function getWeeksForMonth(yearMonth: string): { start: string; end: string }[] {
+  const [yr, mo] = yearMonth.split('-').map(Number)
+  const monthStart = new Date(yr, mo - 1, 1)
+  const monthEndStr = toDateStr(new Date(yr, mo, 0))
+  const weeks: { start: string; end: string }[] = []
+  const firstWeek = getWeekBounds(monthStart)
+  const cur = new Date(firstWeek.start)
+  for (let i = 0; i < 7; i++) {
+    const w = getWeekBounds(cur)
+    if (w.start > monthEndStr) break
+    weeks.push(w)
+    cur.setDate(cur.getDate() + 7)
+  }
+  return weeks
 }
+
+const ArrowIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ position: 'absolute', top: '12px', right: '12px' }}>
+    <path d="M2 8L8 2M8 2H4M8 2V6" stroke="rgba(60,45,30,0.2)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+const _initD = new Date()
+const _initMonth = `${_initD.getFullYear()}-${String(_initD.getMonth()+1).padStart(2,'0')}`
 
 export default function LechePage() {
   const [finca, setFinca] = useState<Finca | null>(null)
@@ -51,6 +72,7 @@ export default function LechePage() {
   const [lotesMap, setLotesMap] = useState<Record<string, string>>({})
 
   const [tab, setTab] = useState<'registro' | 'historial'>('registro')
+  const [selectedMonth, setSelectedMonth] = useState(_initMonth)
 
   const today = new Date().toISOString().split('T')[0]
   const [fecha, setFecha] = useState(today)
@@ -75,8 +97,16 @@ export default function LechePage() {
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
 
+  const hasSetPrecio = useRef(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('tab') === 'historial') setTab('historial')
+    }
+    loadData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadData() }, [])
+  }, [])
 
   async function loadData() {
     const supabase = createClient()
@@ -85,12 +115,13 @@ export default function LechePage() {
     setFinca(currentFinca)
     if (!currentFinca) { setLoading(false); return }
 
-    const [regRes, animRes, todosAnimRes, lotRes, confRes] = await Promise.all([
+    const [regRes, animRes, todosAnimRes, lotRes, confRes, lastPrecioRes] = await Promise.all([
       supabase.from('registro_leche').select('*').eq('finca_id', currentFinca.id).order('fecha', { ascending: false }).limit(500),
       supabase.from('animales').select('id, codigo, nombre, lote_id').eq('finca_id', currentFinca.id).eq('estado', 'activo').eq('sexo', 'hembra'),
       supabase.from('animales').select('id, codigo, nombre').eq('finca_id', currentFinca.id),
       supabase.from('lotes').select('*').eq('finca_id', currentFinca.id),
       supabase.from('config_finca').select('*').eq('finca_id', currentFinca.id).maybeSingle(),
+      supabase.from('registro_leche').select('precio_litro').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ])
 
     const hembrasData = (animRes.data ?? []) as Animal[]
@@ -112,10 +143,15 @@ export default function LechePage() {
     setLotesMap(lMap)
 
     setConfig(confRes.data ?? null)
+
+    if (!hasSetPrecio.current && lastPrecioRes.data?.precio_litro != null) {
+      setPrecio(String(lastPrecioRes.data.precio_litro))
+      hasSetPrecio.current = true
+    }
+
     setLoading(false)
   }
 
-  // Lote-split info (computed from current form state)
   const loteHembras = loteId && !animalId ? animales.filter(a => a.lote_id === loteId) : []
   const infoMessage = loteId && !animalId && litros && loteHembras.length > 0
     ? `Registro por lote: ${litros} litros divididos entre ${loteHembras.length} hembras activas = ${(parseFloat(litros) / loteHembras.length).toFixed(1)} litros promedio por animal`
@@ -152,9 +188,9 @@ export default function LechePage() {
 
     setSaving(false)
     setLitros('')
-    setPrecio('')
     setAnimalId('')
     setLoteId('')
+    hasSetPrecio.current = false
     loadData()
   }
 
@@ -199,7 +235,6 @@ export default function LechePage() {
 
   // ── COMPUTATIONS ──────────────────────────────────────────────────────────
 
-  // Exclude split records (generado_por_lote) from aggregate totals to avoid double-counting
   const registrosPrimarios = registros.filter(r => !r.generado_por_lote)
 
   const _now = new Date()
@@ -214,13 +249,28 @@ export default function LechePage() {
   const produccionSemana = registrosSemana.reduce((s, r) => s + r.litros, 0)
   const ingresosSemana = registrosSemana.reduce((s, r) => s + r.litros * (r.precio_litro ?? config?.precio_litro_leche ?? 0), 0)
 
-  // Historial metrics
+  // Historial: top 3 metrics always relative to current month vs previous
   const thisMonthStart = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-01`
   const lastMonthD = new Date(_now.getFullYear(), _now.getMonth()-1, 1)
   const lastMonthStart = `${lastMonthD.getFullYear()}-${String(lastMonthD.getMonth()+1).padStart(2,'0')}-01`
   const prodEsteMes = registrosPrimarios.filter(r => r.fecha >= thisMonthStart).reduce((s,r) => s+r.litros, 0)
   const prodMesAnterior = registrosPrimarios.filter(r => r.fecha >= lastMonthStart && r.fecha < thisMonthStart).reduce((s,r) => s+r.litros, 0)
   const variacion = prodMesAnterior > 0 ? ((prodEsteMes - prodMesAnterior) / prodMesAnterior) * 100 : null
+
+  // Selected month metrics
+  const selParts = selectedMonth.split('-').map(Number)
+  const selYear = selParts[0], selMo = selParts[1]
+  const selMonthStart = `${selectedMonth}-01`
+  const selMonthEnd = toDateStr(new Date(selYear, selMo, 0))
+  const selRegs = registrosPrimarios.filter(r => r.fecha >= selMonthStart && r.fecha <= selMonthEnd)
+  const selTotalLitros = selRegs.reduce((s, r) => s + r.litros, 0)
+  const selTotalIngresos = selRegs.reduce((s, r) => s + r.litros * (r.precio_litro ?? config?.precio_litro_leche ?? 0), 0)
+  const selDias = new Set(selRegs.map(r => r.fecha)).size
+  const selPromedio = selDias > 0 ? selTotalLitros / selDias : 0
+
+  // Weeks for selected month (oldest→newest for chart, newest→oldest for list)
+  const weeksForMonth = getWeeksForMonth(selectedMonth)
+  const weeksForList = [...weeksForMonth].reverse()
 
   function weekTotals(w: { start: string; end: string }) {
     const regs = registrosPrimarios.filter(r => r.fecha >= w.start && r.fecha <= w.end)
@@ -230,14 +280,22 @@ export default function LechePage() {
     }
   }
 
-  // Oldest to newest for chart
-  const weeks8 = Array.from({ length: 8 }, (_, i) => getWeekNBack(7 - i))
-  // Newest to oldest for collapsible list
-  const weeks12 = Array.from({ length: 12 }, (_, i) => getWeekNBack(i))
-  const chartTotals = weeks8.map(w => ({ ...w, ...weekTotals(w) }))
+  const chartTotals = weeksForMonth.map(w => ({ ...w, ...weekTotals(w) }))
   const maxLitros = Math.max(...chartTotals.map(w => w.litros), 1)
 
-  const filtered = registros.filter(r =>
+  // Month selector options: last 6 months
+  const _nowForOpts = new Date()
+  const monthOptions = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(_nowForOpts.getFullYear(), _nowForOpts.getMonth() - i, 1)
+    return {
+      value: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+      label: `${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`,
+    }
+  })
+
+  // Registro table filtered to this week only
+  const filteredSemana = registros.filter(r =>
+    r.fecha >= semanaInicio && r.fecha <= semanaFin &&
     (!filterAnimal || r.animal_id === filterAnimal) &&
     (!filterLote || r.lote_id === filterLote)
   )
@@ -279,7 +337,8 @@ export default function LechePage() {
               { label: 'Producción semana (L)', value: produccionSemana.toFixed(1) },
               { label: 'Ingresos semana (COP)', value: `$${Math.round(ingresosSemana).toLocaleString('es-CO')}` },
             ].map(m => (
-              <div key={m.label} style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px' }}>
+              <div key={m.label} style={{ position: 'relative', backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px' }}>
+                <ArrowIcon />
                 <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>{m.label}</span>
                 <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '36px', color: '#1a6b45', lineHeight: 1 }}>{m.value}</span>
               </div>
@@ -330,10 +389,10 @@ export default function LechePage() {
               </form>
             </div>
 
-            {/* Recent records table */}
+            {/* Records table — this week only */}
             <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', overflow: 'hidden' }}>
               <div style={{ padding: '20px 24px 14px', display: 'flex', gap: '10px', flexWrap: 'wrap', borderBottom: '1px solid rgba(60,45,30,0.08)' }}>
-                <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '15px', fontWeight: 500, color: '#1c1a17', marginRight: 'auto' }}>Registros recientes</span>
+                <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '15px', fontWeight: 500, color: '#1c1a17', marginRight: 'auto' }}>Registros de esta semana</span>
                 <select value={filterAnimal} onChange={e => setFilterAnimal(e.target.value)}
                   style={{ padding: '6px 10px', border: '1px solid rgba(60,45,30,0.15)', borderRadius: '6px', backgroundColor: '#faf8f4', fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', cursor: 'pointer', outline: 'none' }}>
                   <option value="">Todos los animales</option>
@@ -355,12 +414,12 @@ export default function LechePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.length === 0 ? (
-                      <tr><td colSpan={5} style={{ padding: '28px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin registros</td></tr>
-                    ) : filtered.slice(0, 20).map((r, i) => {
+                    {filteredSemana.length === 0 ? (
+                      <tr><td colSpan={5} style={{ padding: '28px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin registros esta semana</td></tr>
+                    ) : filteredSemana.map((r, i) => {
                       const ingreso = r.litros * (r.precio_litro ?? config?.precio_litro_leche ?? 0)
                       return (
-                        <tr key={r.id} style={{ borderBottom: i < Math.min(filtered.length, 20) - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
+                        <tr key={r.id} style={{ borderBottom: i < filteredSemana.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
                           <td style={{ padding: '10px 16px', color: '#1c1a17' }}>{r.fecha}</td>
                           <td style={{ padding: '10px 16px', color: '#1c1a17', fontWeight: 500 }}>{r.litros} L</td>
                           <td style={{ padding: '10px 16px', color: '#4a4540' }}>{r.precio_litro ? `$${r.precio_litro}` : '—'}</td>
@@ -391,17 +450,20 @@ export default function LechePage() {
       {/* ── HISTORIAL TAB ── */}
       {tab === 'historial' && (
         <>
-          {/* Top 3 metrics */}
+          {/* Top 3 metrics (este mes vs mes anterior) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
-            <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px' }}>
+            <div style={{ position: 'relative', backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px' }}>
+              <ArrowIcon />
               <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>Producción este mes (L)</span>
               <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '36px', color: '#1a6b45', lineHeight: 1 }}>{prodEsteMes.toFixed(1)}</span>
             </div>
-            <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px' }}>
+            <div style={{ position: 'relative', backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px' }}>
+              <ArrowIcon />
               <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>Producción mes anterior (L)</span>
               <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '36px', color: '#1a6b45', lineHeight: 1 }}>{prodMesAnterior.toFixed(1)}</span>
             </div>
-            <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px' }}>
+            <div style={{ position: 'relative', backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px' }}>
+              <ArrowIcon />
               <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>Variación mensual</span>
               {variacion !== null ? (
                 <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '36px', color: variacion >= 0 ? '#1a6b45' : '#8B1A1A', lineHeight: 1 }}>
@@ -413,52 +475,91 @@ export default function LechePage() {
             </div>
           </div>
 
-          {/* Bar chart - last 8 weeks */}
-          <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '24px', marginBottom: '20px' }}>
-            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '18px', color: '#1c1a17', margin: '0 0 20px' }}>Últimas 8 semanas</h2>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '150px', position: 'relative' }}>
-              {chartTotals.map((w, i) => {
-                const heightPct = maxLitros > 0 ? (w.litros / maxLitros) * 100 : 0
-                const isCurrentWeek = i === 7
-                return (
-                  <div key={w.start} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-end', height: '100%', position: 'relative' }}
-                    onMouseEnter={() => setHoveredBar(i)}
-                    onMouseLeave={() => setHoveredBar(null)}>
-                    {hoveredBar === i && (
-                      <div style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1a17', color: 'white', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontFamily: 'var(--font-sans), sans-serif', whiteSpace: 'nowrap', zIndex: 10, lineHeight: 1.4 }}>
-                        {formatShort(w.start)} — {formatShort(w.end)}<br />
-                        {w.litros.toFixed(1)} L · ${Math.round(w.ingresos).toLocaleString('es-CO')} COP
-                      </div>
-                    )}
-                    <div style={{
-                      width: '100%',
-                      height: `${Math.max(heightPct, w.litros > 0 ? 3 : 0)}%`,
-                      backgroundColor: isCurrentWeek ? '#1a6b45' : 'rgba(26,107,69,0.35)',
-                      borderRadius: '4px 4px 0 0',
-                    }} />
-                  </div>
-                )
-              })}
+          {/* Month selector + 4 summary cards */}
+          <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '20px 24px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 600, color: '#4a4540' }}>Resumen mensual</span>
+              <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+                style={{ padding: '6px 10px', border: '1px solid rgba(60,45,30,0.15)', borderRadius: '6px', backgroundColor: '#faf8f4', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                {monthOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </div>
-            <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-              {chartTotals.map((w, i) => (
-                <div key={w.start} style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-sans), sans-serif', fontSize: '10px', color: i === 7 ? '#1a6b45' : '#8c7f74' }}>
-                  {formatShort(w.start)}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+              {[
+                { label: 'Total litros', value: selTotalLitros.toFixed(1) + ' L' },
+                { label: 'Total ingresos', value: `$${Math.round(selTotalIngresos).toLocaleString('es-CO')}` },
+                { label: 'Promedio diario', value: selPromedio.toFixed(1) + ' L' },
+                { label: 'Días registrados', value: String(selDias) },
+              ].map(m => (
+                <div key={m.label} style={{ backgroundColor: '#faf8f4', borderRadius: '10px', padding: '14px 16px' }}>
+                  <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>{m.label}</span>
+                  <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '22px', color: '#1a6b45', lineHeight: 1 }}>{m.value}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Collapsible week list - last 12 weeks */}
+          {/* Bar chart — weeks of selected month */}
+          <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '24px', marginBottom: '20px' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '18px', color: '#1c1a17', margin: '0 0 20px' }}>
+              Semanas — {monthOptions.find(o => o.value === selectedMonth)?.label ?? selectedMonth}
+            </h2>
+            {chartTotals.length === 0 ? (
+              <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', margin: 0 }}>Sin semanas para este mes.</p>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '150px', position: 'relative' }}>
+                  {chartTotals.map((w, i) => {
+                    const heightPct = maxLitros > 0 ? (w.litros / maxLitros) * 100 : 0
+                    const isCurrentWeek = today >= w.start && today <= w.end
+                    return (
+                      <div key={w.start} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-end', height: '100%', position: 'relative' }}
+                        onMouseEnter={() => setHoveredBar(i)}
+                        onMouseLeave={() => setHoveredBar(null)}>
+                        {hoveredBar === i && (
+                          <div style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1a17', color: 'white', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontFamily: 'var(--font-sans), sans-serif', whiteSpace: 'nowrap', zIndex: 10, lineHeight: 1.4 }}>
+                            {formatShort(w.start)} — {formatShort(w.end)}<br />
+                            {w.litros.toFixed(1)} L · ${Math.round(w.ingresos).toLocaleString('es-CO')} COP
+                          </div>
+                        )}
+                        <div style={{
+                          width: '100%',
+                          height: `${Math.max(heightPct, w.litros > 0 ? 3 : 0)}%`,
+                          backgroundColor: isCurrentWeek ? '#1a6b45' : 'rgba(26,107,69,0.35)',
+                          borderRadius: '4px 4px 0 0',
+                        }} />
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                  {chartTotals.map((w) => {
+                    const isCurrentWeek = today >= w.start && today <= w.end
+                    return (
+                      <div key={w.start} style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-sans), sans-serif', fontSize: '10px', color: isCurrentWeek ? '#1a6b45' : '#8c7f74' }}>
+                        {formatShort(w.start)}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Collapsible week list — weeks of selected month */}
           <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', overflow: 'hidden' }}>
-            {weeks12.map((w, i) => {
+            {weeksForList.length === 0 ? (
+              <p style={{ padding: '20px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', margin: 0 }}>Sin semanas para este mes.</p>
+            ) : weeksForList.map((w, i) => {
               const { litros: wLitros, ingresos: wIngresos } = weekTotals(w)
               const isExpanded = expandedWeeks.has(w.start)
               const weekRegs = registros.filter(r => r.fecha >= w.start && r.fecha <= w.end)
-              const isCurrentWeek = i === 0
+              const isCurrentWeek = today >= w.start && today <= w.end
 
               return (
-                <div key={w.start} style={{ borderBottom: i < weeks12.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
+                <div key={w.start} style={{ borderBottom: i < weeksForList.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
                   <button onClick={() => {
                     setExpandedWeeks(prev => {
                       const next = new Set(prev)
@@ -524,7 +625,7 @@ export default function LechePage() {
         </>
       )}
 
-      {/* ── EDIT MODAL (shared) ── */}
+      {/* ── EDIT MODAL ── */}
       {showEditModal && registroToEdit && (
         <div onClick={() => { setShowEditModal(false); setRegistroToEdit(null) }}
           style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px' }}>
@@ -572,7 +673,7 @@ export default function LechePage() {
         </div>
       )}
 
-      {/* ── DELETE CONFIRM (shared) ── */}
+      {/* ── DELETE CONFIRM ── */}
       {registroToDelete && (
         <div onClick={() => setRegistroToDelete(null)}
           style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '16px' }}>
