@@ -230,7 +230,26 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
                 <option value="">Sin especificar</option><option value="hembra">Hembra</option><option value="macho">Macho</option>
               </select>
             </div>
-            <div><label style={labelStyle}>Fecha de nacimiento</label><input type="date" value={fechaNac} onChange={e => setFechaNac(e.target.value)} style={inputStyle} /></div>
+            <div>
+              <label style={labelStyle}>Fecha de nacimiento</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <input type="date" value={fechaNac} onChange={e => setFechaNac(e.target.value)} style={{ ...inputStyle, flex: '1 1 auto' }} />
+                {fechaNac && (() => {
+                  const nac = new Date(fechaNac)
+                  const hoy = new Date()
+                  let anios = hoy.getFullYear() - nac.getFullYear()
+                  let meses = hoy.getMonth() - nac.getMonth()
+                  if (meses < 0) { anios--; meses += 12 }
+                  if (hoy.getDate() < nac.getDate()) { meses--; if (meses < 0) { anios--; meses += 12 } }
+                  const label = anios > 0
+                    ? `${anios} año${anios !== 1 ? 's' : ''}${meses > 0 ? ` ${meses} mes${meses !== 1 ? 'es' : ''}` : ''}`
+                    : meses > 0
+                    ? `${meses} mes${meses !== 1 ? 'es' : ''}`
+                    : `${Math.max(0, Math.floor((hoy.getTime() - nac.getTime()) / 86400000))} días`
+                  return <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', whiteSpace: 'nowrap' }}>({label})</span>
+                })()}
+              </div>
+            </div>
             <div>
               <label style={labelStyle}>Propósito</label>
               <select value={proposito} onChange={e => setProposito(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>

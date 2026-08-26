@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { Animal, EventoAnimal, Finca, Lote } from '@/lib/types'
 
@@ -57,6 +57,10 @@ export default function AnimalesPage() {
   const [filterEstado, setFilterEstado] = useState('')
   const [showInactivos, setShowInactivos] = useState(false)
 
+  // Search
+  const [busqueda, setBusqueda] = useState('')
+  const busquedaRef = useRef(false)
+
   // Sorting
   const [sortCol, setSortCol] = useState<SortCol | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -80,8 +84,16 @@ export default function AnimalesPage() {
   const [savingMasivo, setSavingMasivo] = useState(false)
   const [masivoError, setMasivoError] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !busquedaRef.current) {
+      const params = new URLSearchParams(window.location.search)
+      const b = params.get('buscar')
+      if (b) setBusqueda(b)
+      busquedaRef.current = true
+    }
+    loadData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadData() }, [])
+  }, [])
 
   async function loadData() {
     const supabase = createClient()
@@ -248,6 +260,8 @@ export default function AnimalesPage() {
     return true
   })
 
+  const totalAnimales = animales.length
+
   const display = sortCol ? [...filtered].sort((a, b) => {
     let av = '', bv = ''
     if (sortCol === 'codigo') { av = a.codigo; bv = b.codigo }
@@ -256,6 +270,13 @@ export default function AnimalesPage() {
     else if (sortCol === 'lote') { av = a.lotes?.nombre ?? ''; bv = b.lotes?.nombre ?? '' }
     return sortDir === 'asc' ? av.localeCompare(bv, 'es') : bv.localeCompare(av, 'es')
   }) : filtered
+
+  const displayFinal = busqueda.trim() === '' ? display : display.filter(a => {
+    const q = busqueda.toLowerCase()
+    return a.codigo.toLowerCase().includes(q) ||
+      (a.nombre?.toLowerCase().includes(q) ?? false) ||
+      (a.raza?.toLowerCase().includes(q) ?? false)
+  })
 
   const arrow = (col: SortCol) => sortCol === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
 
@@ -270,7 +291,7 @@ export default function AnimalesPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '28px', color: '#1c1a17', margin: '0 0 2px' }}>Animales</h1>
-          <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74', margin: 0 }}>{display.length} animal{display.length !== 1 ? 'es' : ''}</p>
+          <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74', margin: 0 }}>{displayFinal.length} animal{displayFinal.length !== 1 ? 'es' : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button onClick={() => { setShowMasivoModal(true); setMasivoError(null) }}
@@ -320,6 +341,32 @@ export default function AnimalesPage() {
         </label>
       </div>
 
+      {/* Search */}
+      <div style={{ marginBottom: '8px', position: 'relative', maxWidth: '400px' }}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+          style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#8c7f74' }}>
+          <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
+          <path d="M10.5 10.5L13 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+        <input
+          type="text"
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          placeholder="Buscar por código, nombre o raza..."
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '10px 16px 10px 40px',
+            border: '1px solid rgba(60,45,30,0.15)',
+            borderRadius: '8px', backgroundColor: '#ffffff',
+            fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px',
+            color: '#1c1a17', outline: 'none',
+          }}
+        />
+      </div>
+      <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#8c7f74', margin: '0 0 16px' }}>
+        Mostrando {displayFinal.length} de {totalAnimales} animales
+      </p>
+
       {/* Table */}
       <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
@@ -345,10 +392,10 @@ export default function AnimalesPage() {
               </tr>
             </thead>
             <tbody>
-              {display.length === 0 ? (
+              {displayFinal.length === 0 ? (
                 <tr><td colSpan={8} style={{ padding: '32px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin animales registrados</td></tr>
-              ) : display.map((a, i) => (
-                <tr key={a.id} style={{ borderBottom: i < display.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
+              ) : displayFinal.map((a, i) => (
+                <tr key={a.id} style={{ borderBottom: i < displayFinal.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
                   <td style={{ padding: '12px 16px', fontWeight: 500, color: '#1c1a17' }}>{a.codigo}</td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.nombre ?? '—'}</td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.raza ?? '—'}</td>

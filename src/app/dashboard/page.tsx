@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { Finca } from '@/lib/types'
@@ -83,6 +83,8 @@ function formatShort(dateStr: string): string {
   return `${d} ${MONTHS_SHORT[m-1]}`
 }
 
+const todayDisplay = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })
+
 export default function DashboardPage() {
   const router = useRouter()
   const [finca, setFinca] = useState<Finca | null | undefined>(undefined)
@@ -101,6 +103,17 @@ export default function DashboardPage() {
   const [hoveredEvento, setHoveredEvento] = useState<string | null>(null)
   const [hoveredAct, setHoveredAct] = useState<string | null>(null)
   const [hoveredChart, setHoveredChart] = useState(false)
+
+  // Quick register state
+  const [qlotesAll, setQLotesAll] = useState(0)
+  const [qlotes, setQLotes] = useState<{ id: string; nombre: string }[]>([])
+  const [qHembrasMap, setQHembrasMap] = useState<Record<string, string[]>>({})
+  const [qLoteId, setQLoteId] = useState('')
+  const [qLitros, setQLitros] = useState('')
+  const [qPrecio, setQPrecio] = useState('')
+  const [qSaving, setQSaving] = useState(false)
+  const [qSaved, setQSaved] = useState(false)
+  const qSavedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { loadData() }, [])
 
@@ -122,6 +135,7 @@ export default function DashboardPage() {
         animalesRes, hembrasRes, machosRes, lotesRes, lechHoyRes, lechSemRes,
         lecheChartRes, proximosRes,
         animRecRes, lechRecRes, evRecRes,
+        hembrasLoteRes, allLotesRes, lastPrecioRes,
       ] = await Promise.all([
         supabase.from('animales').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id).eq('estado', 'activo'),
         supabase.from('animales').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id).eq('estado', 'activo').eq('sexo', 'hembra'),
@@ -138,6 +152,12 @@ export default function DashboardPage() {
         supabase.from('animales').select('id, codigo, nombre, created_at').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(5),
         supabase.from('registro_leche').select('id, litros, created_at').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(5),
         supabase.from('eventos_animal').select('id, tipo, created_at, animales(id, codigo)').order('created_at', { ascending: false }).limit(5),
+        // Quick register: hembras activas con lote
+        supabase.from('animales').select('id, lote_id').eq('finca_id', currentFinca.id).eq('estado', 'activo').eq('sexo', 'hembra').not('lote_id', 'is', null),
+        // Quick register: all lotes
+        supabase.from('lotes').select('id, nombre').eq('finca_id', currentFinca.id),
+        // Quick register: last precio usado
+        supabase.from('registro_leche').select('precio_litro').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
       ])
 
       const produccionHoy = (lechHoyRes.data ?? []).reduce((s: number, r: { litros: number }) => s + r.litros, 0)
@@ -188,6 +208,21 @@ export default function DashboardPage() {
         })),
       ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5)
       setActividad(acts)
+
+      // Quick register setup
+      const hembrasConLote = (hembrasLoteRes.data ?? []) as { id: string; lote_id: string | null }[]
+      const hMap: Record<string, string[]> = {}
+      hembrasConLote.forEach(h => {
+        if (h.lote_id) hMap[h.lote_id] = [...(hMap[h.lote_id] ?? []), h.id]
+      })
+      setQHembrasMap(hMap)
+
+      const allLotes = (allLotesRes.data ?? []) as { id: string; nombre: string }[]
+      setQLotesAll(allLotes.length)
+      setQLotes(allLotes.filter(l => (hMap[l.id]?.length ?? 0) > 0))
+
+      const lastPrecio = lastPrecioRes.data?.precio_litro
+      if (lastPrecio != null) setQPrecio(String(lastPrecio))
     }
     setLoading(false)
   }
@@ -207,6 +242,50 @@ export default function DashboardPage() {
     if (data) { setShowModal(false); setNombre(''); setUbicacion(''); loadData() }
   }
 
+  async function handleQuickRegister(e: React.FormEvent) {
+    e.preventDefault()
+    if (!finca || !qLitros) return
+    setQSaving(true)
+    const supabase = createClient()
+    const todayStr = new Date().toISOString().split('T')[0]
+    const precioNum = qPrecio ? parseFloat(qPrecio) : null
+    const litrosNum = parseFloat(qLitros)
+
+    if (qLoteId) {
+      const hembras = qHembrasMap[qLoteId] ?? []
+      if (hembras.length > 0) {
+        const litrosPorAnimal = Math.round((litrosNum / hembras.length) * 100) / 100
+        await Promise.all([
+          supabase.from('registro_leche').insert({
+            finca_id: finca.id, fecha: todayStr, litros: litrosNum, precio_litro: precioNum,
+            animal_id: null, lote_id: qLoteId,
+          }),
+          ...hembras.map(hId => supabase.from('registro_leche').insert({
+            finca_id: finca.id, fecha: todayStr, litros: litrosPorAnimal, precio_litro: precioNum,
+            animal_id: hId, lote_id: qLoteId, generado_por_lote: true,
+          } as Record<string, unknown>)),
+        ])
+      } else {
+        await supabase.from('registro_leche').insert({
+          finca_id: finca.id, fecha: todayStr, litros: litrosNum, precio_litro: precioNum,
+          animal_id: null, lote_id: qLoteId,
+        })
+      }
+    } else {
+      await supabase.from('registro_leche').insert({
+        finca_id: finca.id, fecha: todayStr, litros: litrosNum, precio_litro: precioNum,
+        animal_id: null, lote_id: null,
+      })
+    }
+
+    setQSaving(false)
+    setQLitros('')
+    setQSaved(true)
+    if (qSavedTimer.current) clearTimeout(qSavedTimer.current)
+    qSavedTimer.current = setTimeout(() => setQSaved(false), 2000)
+    loadData()
+  }
+
   const maxLeche = Math.max(...weekLeche.map(w => w.litros), 1)
 
   const cardBase: React.CSSProperties = {
@@ -219,8 +298,13 @@ export default function DashboardPage() {
     flexDirection: 'column',
     gap: '6px',
     cursor: 'pointer',
-    textDecoration: 'none',
     transition: 'background-color 0.12s',
+  }
+
+  const qFieldStyle: React.CSSProperties = {
+    padding: '9px 12px', border: '1px solid rgba(60,45,30,0.18)',
+    borderRadius: '8px', backgroundColor: '#f0ece4', fontSize: '14px',
+    fontFamily: 'var(--font-sans), sans-serif', outline: 'none',
   }
 
   if (loading || finca === undefined) {
@@ -273,7 +357,53 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Mini bar chart — clickable → /leche?tab=historial */}
+      {/* Quick register leche */}
+      {finca && (
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '24px', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+            <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '16px', fontWeight: 500, color: '#1c1a17' }}>Registrar leche hoy</span>
+            <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74' }}>{todayDisplay}</span>
+          </div>
+          {qlotesAll === 0 ? (
+            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', margin: 0 }}>
+              <a href="/dashboard/animales" style={{ color: '#1a6b45' }}>Crea un lote en Animales</a> para registrar leche rápidamente.
+            </p>
+          ) : (
+            <form onSubmit={handleQuickRegister}>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <select value={qLoteId} onChange={e => setQLoteId(e.target.value)}
+                  style={{ ...qFieldStyle, cursor: 'pointer', minWidth: '160px' }}>
+                  <option value="">Sin lote</option>
+                  {qlotes.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
+                </select>
+                <input
+                  type="number" step="0.1" min="0" value={qLitros}
+                  onChange={e => setQLitros(e.target.value)}
+                  placeholder="Litros" required
+                  style={{ ...qFieldStyle, width: '120px' }}
+                />
+                <input
+                  type="number" step="0.01" min="0" value={qPrecio}
+                  onChange={e => setQPrecio(e.target.value)}
+                  placeholder="Precio/L"
+                  style={{ ...qFieldStyle, width: '120px' }}
+                />
+                <button type="submit" disabled={qSaving}
+                  style={{ padding: '9px 20px', backgroundColor: '#1a6b45', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: qSaving ? 'not-allowed' : 'pointer', opacity: qSaving ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+                  {qSaving ? 'Registrando...' : 'Registrar'}
+                </button>
+                {qSaved && (
+                  <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#1a6b45', fontWeight: 500 }}>
+                    ✓ Registrado
+                  </span>
+                )}
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Mini bar chart */}
       {finca && (
         <div
           onClick={() => router.push('/dashboard/leche?tab=historial')}
@@ -315,7 +445,6 @@ export default function DashboardPage() {
       {/* 2-col: proximos eventos + actividad reciente */}
       {finca && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-          {/* Proximos eventos */}
           <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(60,45,30,0.08)' }}>
               <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 600, color: '#4a4540' }}>Próximos eventos</span>
@@ -331,21 +460,10 @@ export default function DashboardPage() {
                       onClick={() => router.push(evHref)}
                       onMouseEnter={() => setHoveredEvento(ev.id)}
                       onMouseLeave={() => setHoveredEvento(null)}
-                      style={{
-                        padding: '12px 20px',
-                        borderBottom: i < proximosEventos.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none',
-                        display: 'flex', flexDirection: 'column', gap: '4px',
-                        cursor: 'pointer',
-                        backgroundColor: hoveredEvento === ev.id ? 'rgba(60,45,30,0.03)' : 'transparent',
-                        transition: 'background-color 0.1s',
-                      }}>
+                      style={{ padding: '12px 20px', borderBottom: i < proximosEventos.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', backgroundColor: hoveredEvento === ev.id ? 'rgba(60,45,30,0.03)' : 'transparent', transition: 'background-color 0.1s' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>{ev.proxima_fecha}</span>
-                        <span style={{
-                          backgroundColor: typeBg[ev.tipo] ?? '#f3f4f6',
-                          color: typeColors[ev.tipo] ?? '#9ca3af',
-                          padding: '1px 7px', borderRadius: '12px', fontSize: '11px', fontWeight: 500,
-                        }}>
+                        <span style={{ backgroundColor: typeBg[ev.tipo] ?? '#f3f4f6', color: typeColors[ev.tipo] ?? '#9ca3af', padding: '1px 7px', borderRadius: '12px', fontSize: '11px', fontWeight: 500 }}>
                           {typeLabels[ev.tipo] ?? ev.tipo}
                         </span>
                       </div>
@@ -363,7 +481,6 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Actividad reciente */}
           <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(60,45,30,0.08)' }}>
               <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 600, color: '#4a4540' }}>Actividad reciente</span>
@@ -378,20 +495,12 @@ export default function DashboardPage() {
                     : act.icon === 'leche'
                     ? <svg width="12" height="14" viewBox="0 0 6 8" fill="none"><path d="M3 0.5C3 0.5 0.5 3.5 0.5 5.5C0.5 6.88 1.62 8 3 8C4.38 8 5.5 6.88 5.5 5.5C5.5 3.5 3 0.5 3 0.5Z" fill="#2563eb"/></svg>
                     : <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke={typeColors[act.tipo ?? ''] ?? '#9ca3af'} strokeWidth="1.3"/><path d="M6 3v3.5L8 8" stroke={typeColors[act.tipo ?? ''] ?? '#9ca3af'} strokeWidth="1.2" strokeLinecap="round"/></svg>
-
                   return (
                     <div key={act.key}
                       onClick={() => router.push(act.href)}
                       onMouseEnter={() => setHoveredAct(act.key)}
                       onMouseLeave={() => setHoveredAct(null)}
-                      style={{
-                        padding: '11px 20px',
-                        borderBottom: i < actividad.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none',
-                        display: 'flex', alignItems: 'center', gap: '10px',
-                        cursor: 'pointer',
-                        backgroundColor: hoveredAct === act.key ? 'rgba(60,45,30,0.03)' : 'transparent',
-                        transition: 'background-color 0.1s',
-                      }}>
+                      style={{ padding: '11px 20px', borderBottom: i < actividad.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', backgroundColor: hoveredAct === act.key ? 'rgba(60,45,30,0.03)' : 'transparent', transition: 'background-color 0.1s' }}>
                       <div style={{ width: '28px', height: '28px', borderRadius: '8px', backgroundColor: '#faf8f4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         {iconEl}
                       </div>

@@ -75,6 +75,7 @@ export function Sidebar({ email }: { email: string }) {
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
   const [hovered, setHovered] = useState<string | null>(null)
+  const [busquedaGlobal, setBusquedaGlobal] = useState('')
 
   async function handleSignOut() {
     setSigningOut(true)
@@ -97,7 +98,7 @@ export function Sidebar({ email }: { email: string }) {
       }}
     >
       {/* Logo */}
-      <div style={{ padding: '24px 20px 20px' }}>
+      <div style={{ padding: '24px 20px 16px' }}>
         <Image
           src="/micampo_logo_cream.png"
           alt="Mi Campo.AI"
@@ -105,6 +106,26 @@ export function Sidebar({ email }: { email: string }) {
           height={42}
           priority
           style={{ objectFit: 'contain', mixBlendMode: 'multiply', width: '140px' }}
+        />
+        <input
+          type="text"
+          value={busquedaGlobal}
+          onChange={e => setBusquedaGlobal(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && busquedaGlobal.trim()) {
+              router.push(`/dashboard/animales?buscar=${encodeURIComponent(busquedaGlobal.trim())}`)
+              setBusquedaGlobal('')
+            }
+          }}
+          placeholder="Buscar..."
+          style={{
+            marginTop: '14px', width: '100%', boxSizing: 'border-box',
+            padding: '8px 12px',
+            backgroundColor: 'rgba(255,255,255,0.08)',
+            border: 'none', borderRadius: '6px',
+            fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px',
+            color: '#ffffff', outline: 'none',
+          }}
         />
       </div>
 
