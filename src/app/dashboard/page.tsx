@@ -24,6 +24,13 @@ type ProximoEvento = {
   animales: { codigo: string; nombre: string | null; lotes: { nombre: string } | null } | null
 }
 
+type ProximoParto = {
+  id: string
+  codigo: string
+  nombre: string | null
+  fecha_parto_estimada: string
+}
+
 type ActivityItem = {
   key: string
   created_at: string
@@ -98,6 +105,7 @@ export default function DashboardPage() {
 
   const [weekLeche, setWeekLeche] = useState<{ start: string; end: string; litros: number }[]>([])
   const [proximosEventos, setProximosEventos] = useState<ProximoEvento[]>([])
+  const [proximosPartos, setProximosPartos] = useState<ProximoParto[]>([])
   const [actividad, setActividad] = useState<ActivityItem[]>([])
 
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
@@ -131,9 +139,10 @@ export default function DashboardPage() {
       const weekStart = toDateStr(_mnd)
       const fourWeeksAgo = toDateStr(new Date(_dn.getTime() - 28 * 24 * 3600000))
 
+      const next30 = toDateStr(new Date(new Date().getTime() + 30 * 24 * 3600000))
       const [
         animalesRes, hembrasRes, machosRes, lotesRes, lechHoyRes, lechSemRes,
-        lecheChartRes, proximosRes,
+        lecheChartRes, proximosRes, proximosPartosRes,
         animRecRes, lechRecRes, evRecRes,
         hembrasLoteRes, allLotesRes, lastPrecioRes,
       ] = await Promise.all([
@@ -149,6 +158,15 @@ export default function DashboardPage() {
           .gte('proxima_fecha', today)
           .order('proxima_fecha', { ascending: true })
           .limit(5),
+        supabase.from('animales')
+          .select('id, codigo, nombre, fecha_parto_estimada')
+          .eq('finca_id', currentFinca.id)
+          .eq('sexo', 'hembra')
+          .eq('estado', 'activo')
+          .not('fecha_parto_estimada', 'is', null)
+          .gte('fecha_parto_estimada', today)
+          .lte('fecha_parto_estimada', next30)
+          .order('fecha_parto_estimada', { ascending: true }),
         supabase.from('animales').select('id, codigo, nombre, created_at').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(5),
         supabase.from('registro_leche').select('id, litros, created_at').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(5),
         supabase.from('eventos_animal').select('id, tipo, created_at, animales(id, codigo)').order('created_at', { ascending: false }).limit(5),
@@ -181,6 +199,7 @@ export default function DashboardPage() {
       setWeekLeche(wl)
 
       setProximosEventos((proximosRes.data ?? []) as unknown as ProximoEvento[])
+      setProximosPartos((proximosPartosRes.data ?? []) as unknown as ProximoParto[])
 
       type AR = { id: string; codigo: string; nombre: string | null; created_at: string }
       type LR = { id: string; litros: number; created_at: string }
@@ -469,18 +488,19 @@ export default function DashboardPage() {
             <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(60,45,30,0.08)' }}>
               <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 600, color: '#4a4540' }}>Próximos eventos</span>
             </div>
-            {proximosEventos.length === 0 ? (
+            {proximosEventos.length === 0 && proximosPartos.length === 0 ? (
               <p style={{ padding: '20px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', margin: 0 }}>Sin eventos programados.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {proximosEventos.map((ev, i) => {
                   const evHref = ev.animal_id ? `/dashboard/animales/${ev.animal_id}` : '/dashboard/eventos'
+                  const isLast = i === proximosEventos.length - 1 && proximosPartos.length === 0
                   return (
                     <div key={ev.id}
                       onClick={() => router.push(evHref)}
                       onMouseEnter={() => setHoveredEvento(ev.id)}
                       onMouseLeave={() => setHoveredEvento(null)}
-                      style={{ padding: '12px 20px', borderBottom: i < proximosEventos.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', backgroundColor: hoveredEvento === ev.id ? 'rgba(60,45,30,0.03)' : 'transparent', transition: 'background-color 0.1s' }}>
+                      style={{ padding: '12px 20px', borderBottom: !isLast ? '1px solid rgba(60,45,30,0.06)' : 'none', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', backgroundColor: hoveredEvento === ev.id ? 'rgba(60,45,30,0.03)' : 'transparent', transition: 'background-color 0.1s' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>{ev.proxima_fecha}</span>
                         <span style={{ backgroundColor: typeBg[ev.tipo] ?? '#f3f4f6', color: typeColors[ev.tipo] ?? '#9ca3af', padding: '1px 7px', borderRadius: '12px', fontSize: '11px', fontWeight: 500 }}>
@@ -497,6 +517,20 @@ export default function DashboardPage() {
                     </div>
                   )
                 })}
+                {proximosPartos.map((p, i) => (
+                  <div key={`parto-${p.id}`}
+                    onClick={() => router.push(`/dashboard/animales/${p.id}`)}
+                    onMouseEnter={() => setHoveredEvento(`parto-${p.id}`)}
+                    onMouseLeave={() => setHoveredEvento(null)}
+                    style={{ padding: '12px 20px', borderBottom: i < proximosPartos.length - 1 ? '1px solid rgba(60,45,30,0.06)' : 'none', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', backgroundColor: hoveredEvento === `parto-${p.id}` ? 'rgba(60,45,30,0.03)' : 'transparent', transition: 'background-color 0.1s' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>{p.fecha_parto_estimada}</span>
+                      <span style={{ backgroundColor: '#ede9fe', color: '#5b21b6', padding: '1px 7px', borderRadius: '12px', fontSize: '11px', fontWeight: 500 }}>Parto</span>
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#1c1a17', fontWeight: 500 }}>Parto esperado: {p.nombre ?? p.codigo}</span>
+                    <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>{p.codigo}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>

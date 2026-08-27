@@ -2,9 +2,19 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { getFincaAndRol } from '@/lib/finca'
 import type { Animal, EventoAnimal, Lote, RegistroLeche } from '@/lib/types'
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
+type Cria = { id: string; codigo: string; nombre: string | null; sexo: string | null; fecha_nacimiento: string | null; estado: string }
+type MadreMini = { id: string; codigo: string; nombre: string | null }
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '10px 14px', border: '1px solid rgba(60,45,30,0.18)',
@@ -28,12 +38,19 @@ const tipoBadge: Record<string, React.CSSProperties> = {
   otro:         { backgroundColor: '#f3f4f6', color: '#374151' },
 }
 
-type EventoForm = { tipo: string; descripcion: string; fecha: string; costo: string; proxima_fecha: string }
+type EventoForm = {
+  tipo: string; descripcion: string; fecha: string; costo: string; proxima_fecha: string
+  cria_codigo: string; cria_nombre: string; cria_sexo: string; cria_peso: string
+}
 
-const emptyEvento = (today: string): EventoForm => ({ tipo: '', descripcion: '', fecha: today, costo: '', proxima_fecha: '' })
+const emptyEvento = (today: string): EventoForm => ({
+  tipo: '', descripcion: '', fecha: today, costo: '', proxima_fecha: '',
+  cria_codigo: '', cria_nombre: '', cria_sexo: '', cria_peso: '',
+})
 
 export default function AnimalDetailPage({ params }: { params: { id: string } }) {
   const today = new Date().toISOString().split('T')[0]
+  const router = useRouter()
   const [animal, setAnimal] = useState<Animal | null>(null)
   const [rol, setRol] = useState<'admin' | 'colaborador' | null>(null)
   const [lotes, setLotes] = useState<Lote[]>([])
@@ -42,6 +59,20 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  // Reproductive state
+  const [estadoRepro, setEstadoRepro] = useState('')
+  const [fechaPartoEst, setFechaPartoEst] = useState('')
+
+  // Crias + madre (Parts 4 & 3)
+  const [crias, setCrias] = useState<Cria[]>([])
+  const [madre, setMadre] = useState<MadreMini | null>(null)
+  const [partoMsg, setPartoMsg] = useState<string | null>(null)
+
+  // Delete animal (Part 5)
+  const [showDeleteAnimal, setShowDeleteAnimal] = useState(false)
+  const [deletingAnimal, setDeletingAnimal] = useState(false)
+  const [deleteAnimalError, setDeleteAnimalError] = useState<string | null>(null)
 
   // Confirm dialog for vendido/muerto
   const [showConfirm, setShowConfirm] = useState(false)
@@ -95,14 +126,22 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
       setLoteId(a.lote_id ?? '')
       setPeso(a.peso_actual != null ? String(a.peso_actual) : '')
       setNotas(a.notas ?? '')
-      const [lotesRes, lecheRes] = await Promise.all([
+      setEstadoRepro(a.estado_reproductivo ?? '')
+      setFechaPartoEst(a.fecha_parto_estimada ?? '')
+      const [lotesRes, lecheRes, criasRes] = await Promise.all([
         supabase.from('lotes').select('*').eq('finca_id', a.finca_id),
         a.sexo === 'hembra'
           ? supabase.from('registro_leche').select('*').eq('animal_id', a.id).order('fecha', { ascending: false })
           : Promise.resolve({ data: [] }),
+        supabase.from('animales').select('id, codigo, nombre, sexo, fecha_nacimiento, estado').eq('madre_id', a.id).order('fecha_nacimiento', { ascending: false }),
       ])
       setLotes(lotesRes.data ?? [])
       setLecheAnimal((lecheRes.data ?? []) as RegistroLeche[])
+      setCrias((criasRes.data ?? []) as Cria[])
+      if (a.madre_id) {
+        const { data: madreData } = await supabase.from('animales').select('id, codigo, nombre').eq('id', a.madre_id).single()
+        setMadre(madreData as MadreMini | null)
+      }
     }
     setEventos((eventosRes.data ?? []) as EventoAnimal[])
     setLoading(false)
@@ -121,6 +160,8 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
     setSaving(true)
     setShowConfirm(false)
     const supabase = createClient()
+    const er = sexo === 'hembra' && estadoRepro ? estadoRepro : null
+    const fp = er === 'prenada' && fechaPartoEst ? fechaPartoEst : null
     await supabase.from('animales').update({
       codigo: codigo.trim(),
       nombre: nombre.trim() || null,
@@ -132,6 +173,8 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
       lote_id: loteId || null,
       peso_actual: peso ? parseFloat(peso) : null,
       notas: notas.trim() || null,
+      estado_reproductivo: er,
+      fecha_parto_estimada: fp,
     }).eq('id', animal.id)
     // Refresh animal to keep estado in sync
     const { data } = await supabase.from('animales').select('*, lotes(nombre)').eq('id', animal.id).single()
@@ -172,6 +215,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
       fecha: ev.fecha,
       costo: ev.costo != null ? String(ev.costo) : '',
       proxima_fecha: ev.proxima_fecha ?? '',
+      cria_codigo: '', cria_nombre: '', cria_sexo: '', cria_peso: '',
     })
     setShowEventoModal(true)
   }
@@ -180,6 +224,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
     e.preventDefault()
     if (!animal || !eventoForm.tipo || !eventoForm.descripcion || !eventoForm.fecha) return
     setSavingEvento(true)
+    setPartoMsg(null)
     const supabase = createClient()
     const payload = {
       tipo: eventoForm.tipo as EventoAnimal['tipo'],
@@ -192,12 +237,61 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
       await supabase.from('eventos_animal').update(payload).eq('id', eventoToEdit.id)
     } else {
       await supabase.from('eventos_animal').insert({ ...payload, animal_id: animal.id })
+      // Part 6: update reproductive state
+      if (animal.sexo === 'hembra') {
+        if (eventoForm.tipo === 'servicio') {
+          const fp = addDays(eventoForm.fecha, 283)
+          await supabase.from('animales').update({ estado_reproductivo: 'prenada', fecha_parto_estimada: fp }).eq('id', animal.id)
+          setEstadoRepro('prenada')
+          setFechaPartoEst(fp)
+          setAnimal(prev => prev ? { ...prev, estado_reproductivo: 'prenada', fecha_parto_estimada: fp } : prev)
+        } else if (eventoForm.tipo === 'parto') {
+          await supabase.from('animales').update({ estado_reproductivo: 'parida', fecha_parto_estimada: null }).eq('id', animal.id)
+          setEstadoRepro('parida')
+          setFechaPartoEst('')
+          setAnimal(prev => prev ? { ...prev, estado_reproductivo: 'parida', fecha_parto_estimada: null } : prev)
+          // Part 3: create cria if cria_codigo provided
+          if (eventoForm.cria_codigo.trim() && eventoForm.cria_sexo) {
+            await supabase.from('animales').insert({
+              finca_id: animal.finca_id,
+              lote_id: animal.lote_id,
+              codigo: eventoForm.cria_codigo.trim(),
+              nombre: eventoForm.cria_nombre.trim() || null,
+              sexo: eventoForm.cria_sexo as Animal['sexo'],
+              fecha_nacimiento: eventoForm.fecha,
+              madre_id: animal.id,
+              raza: animal.raza || null,
+              proposito: animal.proposito,
+              estado: 'activo',
+              peso_actual: eventoForm.cria_peso ? parseFloat(eventoForm.cria_peso) : null,
+            })
+            setPartoMsg(`Cría ${eventoForm.cria_codigo} registrada exitosamente.`)
+          }
+        }
+      }
     }
     setSavingEvento(false)
     setShowEventoModal(false)
     setEventoToEdit(null)
     setEventoForm(emptyEvento(today))
     await reloadEventos()
+    // Reload crias if parto
+    if (!eventoToEdit && eventoForm.tipo === 'parto' && animal.sexo === 'hembra') {
+      const { data } = await supabase.from('animales').select('id, codigo, nombre, sexo, fecha_nacimiento, estado').eq('madre_id', animal.id).order('fecha_nacimiento', { ascending: false })
+      setCrias((data ?? []) as Cria[])
+    }
+  }
+
+  async function handleDeleteAnimal() {
+    if (!animal) return
+    if (crias.length > 0) {
+      setDeleteAnimalError(`Este animal tiene ${crias.length} cría${crias.length !== 1 ? 's' : ''} registrada${crias.length !== 1 ? 's' : ''}. Elimina o reasigna las crías primero.`)
+      return
+    }
+    setDeletingAnimal(true)
+    const supabase = createClient()
+    await supabase.from('animales').delete().eq('id', animal.id)
+    router.push('/dashboard/animales')
   }
 
   async function handleDeleteEvento() {
@@ -280,6 +374,23 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
                 <option value="">Sin especificar</option><option value="leche">Leche</option><option value="carne">Carne</option><option value="doble_proposito">Doble propósito</option>
               </select>
             </div>
+            {sexo === 'hembra' && (
+              <div>
+                <label style={labelStyle}>Estado reproductivo</label>
+                <select value={estadoRepro} onChange={e => { setEstadoRepro(e.target.value); if (e.target.value !== 'prenada') setFechaPartoEst('') }} style={{ ...inputStyle, cursor: 'pointer' }}>
+                  <option value="">Sin especificar</option>
+                  <option value="escotera">Escotera</option>
+                  <option value="prenada">Preñada</option>
+                  <option value="parida">Parida</option>
+                </select>
+              </div>
+            )}
+            {sexo === 'hembra' && estadoRepro === 'prenada' && (
+              <div>
+                <label style={labelStyle}>Fecha parto estimada</label>
+                <input type="date" value={fechaPartoEst} onChange={e => setFechaPartoEst(e.target.value)} style={inputStyle} />
+              </div>
+            )}
             <div>
               <label style={labelStyle}>Estado</label>
               <select value={estado} onChange={e => setEstado(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
@@ -309,6 +420,62 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
           </div>
         </form>
       </div>
+
+      {/* Parto confirmation message */}
+      {partoMsg && (
+        <div style={{ backgroundColor: '#e8f5ee', border: '1px solid rgba(26,107,69,0.2)', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#1a6b45', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>✓ {partoMsg}</span>
+          <button onClick={() => setPartoMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1a6b45', fontSize: '16px', padding: '0 4px' }}>×</button>
+        </div>
+      )}
+
+      {/* Part 4: Madre/Padre banners */}
+      {madre && (
+        <div style={{ backgroundColor: '#faf8f4', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '10px', padding: '14px 18px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', fontWeight: 500 }}>Madre</span>
+          <Link href={`/dashboard/animales/${madre.id}`} style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#1a6b45', textDecoration: 'none', fontWeight: 500 }}>
+            {madre.nombre ?? madre.codigo} {madre.nombre ? `(${madre.codigo})` : ''}
+          </Link>
+        </div>
+      )}
+      <div style={{ backgroundColor: '#faf8f4', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', fontWeight: 500 }}>Padre</span>
+        <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74' }}>No registrado</span>
+      </div>
+
+      {/* Part 4: Crias section */}
+      {crias.length > 0 && (
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid rgba(60,45,30,0.08)' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#1c1a17', margin: 0 }}>Crías ({crias.length})</h2>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(60,45,30,0.10)' }}>
+                  {['Código','Nombre','Sexo','Fecha nacimiento','Estado'].map(col => (
+                    <th key={col} style={{ padding: '9px 16px', textAlign: 'left', fontWeight: 500, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', whiteSpace: 'nowrap' }}>{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {crias.map((c, i) => (
+                  <tr key={c.id} onClick={() => window.location.href = `/dashboard/animales/${c.id}`}
+                    style={{ borderBottom: i < crias.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none', cursor: 'pointer' }}>
+                    <td style={{ padding: '10px 16px', fontWeight: 500, color: '#1a6b45' }}>{c.codigo}</td>
+                    <td style={{ padding: '10px 16px', color: '#4a4540' }}>{c.nombre ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: '#4a4540' }}>{c.sexo ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: '#4a4540' }}>{c.fecha_nacimiento ?? '—'}</td>
+                    <td style={{ padding: '10px 16px' }}>
+                      <span style={{ backgroundColor: c.estado === 'activo' ? '#e8f5ee' : '#fee2e2', color: c.estado === 'activo' ? '#1a6b45' : '#8B1A1A', padding: '2px 8px', borderRadius: '12px', fontSize: '12px' }}>{c.estado}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Leche section — hembras only */}
       {animal.sexo === 'hembra' && (() => {
@@ -427,6 +594,23 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
         )}
       </div>
 
+      {/* Part 5: Delete animal (admin only) */}
+      {isAdmin && (
+        <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid rgba(139,26,26,0.12)' }}>
+          <h3 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '18px', color: '#8B1A1A', margin: '0 0 10px' }}>Zona de peligro</h3>
+          <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', margin: '0 0 14px' }}>
+            Eliminar este animal lo borrará permanentemente junto con todos sus eventos y registros de leche.
+          </p>
+          {deleteAnimalError && (
+            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8B1A1A', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', margin: '0 0 12px' }}>{deleteAnimalError}</p>
+          )}
+          <button onClick={() => { setShowDeleteAnimal(true); setDeleteAnimalError(null) }}
+            style={{ padding: '10px 20px', border: '1px solid rgba(139,26,26,0.4)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#8B1A1A', fontWeight: 500 }}>
+            Eliminar animal
+          </button>
+        </div>
+      )}
+
       {/* ---- CONFIRM INACTIVE STATE ---- */}
       {showConfirm && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '16px' }}>
@@ -476,6 +660,25 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
                 <div><label style={labelStyle}>Costo (COP)</label><input type="number" step="0.01" value={eventoForm.costo} onChange={e => setEventoForm(f => ({ ...f, costo: e.target.value }))} placeholder="0" style={inputStyle} /></div>
                 <div><label style={labelStyle}>Próxima fecha</label><input type="date" value={eventoForm.proxima_fecha} onChange={e => setEventoForm(f => ({ ...f, proxima_fecha: e.target.value }))} style={inputStyle} /></div>
               </div>
+              {/* Part 3: cria fields for parto on hembra (new events only) */}
+              {!eventoToEdit && eventoForm.tipo === 'parto' && animal.sexo === 'hembra' && (
+                <div style={{ borderTop: '1px solid rgba(60,45,30,0.10)', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 600, color: '#4a4540', margin: 0 }}>Datos de la cría (opcional)</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div><label style={labelStyle}>Código cría *</label><input value={eventoForm.cria_codigo} onChange={e => setEventoForm(f => ({ ...f, cria_codigo: e.target.value }))} placeholder="VCA-002" style={inputStyle} /></div>
+                    <div><label style={labelStyle}>Nombre cría</label><input value={eventoForm.cria_nombre} onChange={e => setEventoForm(f => ({ ...f, cria_nombre: e.target.value }))} placeholder="Opcional" style={inputStyle} /></div>
+                    <div>
+                      <label style={labelStyle}>Sexo cría *</label>
+                      <select value={eventoForm.cria_sexo} onChange={e => setEventoForm(f => ({ ...f, cria_sexo: e.target.value }))} style={{ ...inputStyle, cursor: 'pointer' }}>
+                        <option value="">Seleccionar</option>
+                        <option value="hembra">Hembra</option>
+                        <option value="macho">Macho</option>
+                      </select>
+                    </div>
+                    <div><label style={labelStyle}>Peso cría (kg)</label><input type="number" step="0.1" value={eventoForm.cria_peso} onChange={e => setEventoForm(f => ({ ...f, cria_peso: e.target.value }))} placeholder="Opcional" style={inputStyle} /></div>
+                  </div>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
                 <button type="button" onClick={() => { setShowEventoModal(false); setEventoToEdit(null) }}
                   style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>Cancelar</button>
@@ -503,6 +706,32 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
               <button onClick={handleDeleteEvento} disabled={deletingEvento}
                 style={{ padding: '9px 18px', backgroundColor: '#8B1A1A', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: deletingEvento ? 'not-allowed' : 'pointer', opacity: deletingEvento ? 0.7 : 1 }}>
                 {deletingEvento ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ---- DELETE ANIMAL CONFIRM ---- */}
+      {showDeleteAnimal && (
+        <div onClick={() => setShowDeleteAnimal(false)}
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70, padding: '16px' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#8B1A1A', margin: '0 0 12px' }}>¿Eliminar animal?</h3>
+            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#4a4540', margin: '0 0 8px', lineHeight: 1.6 }}>
+              Estás a punto de eliminar permanentemente a <strong>{animal.nombre ?? animal.codigo}</strong> junto con todos sus eventos y registros. Esta acción no se puede deshacer.
+            </p>
+            {crias.length > 0 && (
+              <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8B1A1A', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', margin: '0 0 16px' }}>
+                Este animal tiene {crias.length} cría{crias.length !== 1 ? 's' : ''} registrada{crias.length !== 1 ? 's' : ''}. No se puede eliminar.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button onClick={() => setShowDeleteAnimal(false)}
+                style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>Cancelar</button>
+              <button onClick={handleDeleteAnimal} disabled={deletingAnimal || crias.length > 0}
+                style={{ padding: '10px 20px', backgroundColor: crias.length > 0 ? '#d1d5db' : '#8B1A1A', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: deletingAnimal || crias.length > 0 ? 'not-allowed' : 'pointer', opacity: deletingAnimal ? 0.7 : 1 }}>
+                {deletingAnimal ? 'Eliminando...' : 'Eliminar definitivamente'}
               </button>
             </div>
           </div>

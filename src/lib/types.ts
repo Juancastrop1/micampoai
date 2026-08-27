@@ -29,6 +29,10 @@ export type Animal = {
   notas: string | null
   created_at: string
   lotes?: { nombre: string } | null
+  estado_reproductivo?: 'escotera' | 'prenada' | 'parida' | null
+  fecha_parto_estimada?: string | null
+  madre_id?: string | null
+  padre_id?: string | null
 }
 
 export type RegistroLeche = {

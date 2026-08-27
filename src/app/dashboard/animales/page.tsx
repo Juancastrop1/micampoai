@@ -25,6 +25,16 @@ const inputStyle: React.CSSProperties = {
   fontFamily: 'var(--font-sans), sans-serif', outline: 'none', boxSizing: 'border-box',
 }
 const selectStyle: React.CSSProperties = { ...inputStyle, cursor: 'pointer' }
+
+const reproLabels: Record<string, string> = {
+  escotera: 'Escotera', prenada: 'Preñada', parida: 'Parida',
+}
+const reproBadge: Record<string, React.CSSProperties> = {
+  escotera: { backgroundColor: '#f3f4f6', color: '#6b7280' },
+  prenada:  { backgroundColor: '#ede9fe', color: '#5b21b6' },
+  parida:   { backgroundColor: '#dbeafe', color: '#1e40af' },
+}
+
 const labelStyle: React.CSSProperties = {
   fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 500,
   color: '#4a4540', display: 'block', marginBottom: '6px',
@@ -34,13 +44,21 @@ type FormState = {
   codigo: string; nombre: string; raza: string; sexo: string
   fecha_nacimiento: string; proposito: string; lote_id: string
   peso_actual: string; notas: string
+  estado_reproductivo: string; fecha_parto_estimada: string
 }
 const emptyForm: FormState = {
   codigo: '', nombre: '', raza: '', sexo: '', fecha_nacimiento: '',
   proposito: '', lote_id: '', peso_actual: '', notas: '',
+  estado_reproductivo: '', fecha_parto_estimada: '',
 }
 type SortCol = 'codigo' | 'nombre' | 'raza' | 'lote' | 'edad'
 type MasivoForm = { tipo: string; descripcion: string; fecha: string; costo: string; proxima_fecha: string; precioVentaTotal: string; comprador: string }
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
 
 function calcEdad(fechaNac: string | null | undefined, refDate: string): string {
   if (!fechaNac) return '—'
@@ -81,6 +99,7 @@ export default function AnimalesPage() {
   const [filterLote, setFilterLote] = useState('')
   const [filterProposito, setFilterProposito] = useState('')
   const [filterEstado, setFilterEstado] = useState('')
+  const [filterEstadoRepro, setFilterEstadoRepro] = useState('')
   const [showInactivos, setShowInactivos] = useState(false)
 
   // Search
@@ -162,6 +181,8 @@ export default function AnimalesPage() {
     }
     setSaving(true)
     const supabase = createClient()
+    const estadoRepro = form.sexo === 'hembra' && form.estado_reproductivo ? form.estado_reproductivo : null
+    const fechaPartoEst = estadoRepro === 'prenada' && form.fecha_parto_estimada ? form.fecha_parto_estimada : null
     await supabase.from('animales').insert({
       finca_id: finca.id,
       codigo: form.codigo.trim(),
@@ -173,6 +194,8 @@ export default function AnimalesPage() {
       lote_id: form.lote_id || null,
       peso_actual: form.peso_actual ? parseFloat(form.peso_actual) : null,
       notas: form.notas.trim() || null,
+      estado_reproductivo: estadoRepro,
+      fecha_parto_estimada: fechaPartoEst,
     })
     setSaving(false)
     setShowModal(false)
@@ -221,6 +244,7 @@ export default function AnimalesPage() {
   }
 
   const isAdmin = rol === 'admin'
+  const hasHembras = animales.some(a => a.sexo === 'hembra' && a.estado === 'activo')
 
   // Evento masivo
   const activeAnimales = animales.filter(a => a.estado === 'activo')
@@ -263,16 +287,35 @@ export default function AnimalesPage() {
         ),
       ])
     } else {
-      await supabase.from('eventos_animal').insert(
-        targetIds.map(animal_id => ({
-          animal_id,
-          tipo: masivoForm.tipo as EventoAnimal['tipo'],
-          descripcion: masivoForm.descripcion,
-          fecha: masivoForm.fecha,
-          costo: masivoForm.costo ? parseFloat(masivoForm.costo) : null,
-          proxima_fecha: masivoForm.proxima_fecha || null,
-        }))
-      )
+      // Part 6: update reproductive state for hembras on servicio/parto
+      const hembrasInTarget = activeAnimales.filter(a => targetIds.includes(a.id) && a.sexo === 'hembra').map(a => a.id)
+      const reproOps: Promise<unknown>[] = []
+      if (hembrasInTarget.length > 0) {
+        if (masivoForm.tipo === 'servicio') {
+          reproOps.push(supabase.from('animales').update({
+            estado_reproductivo: 'prenada',
+            fecha_parto_estimada: addDays(masivoForm.fecha, 283),
+          }).in('id', hembrasInTarget) as unknown as Promise<unknown>)
+        } else if (masivoForm.tipo === 'parto') {
+          reproOps.push(supabase.from('animales').update({
+            estado_reproductivo: 'parida',
+            fecha_parto_estimada: null,
+          }).in('id', hembrasInTarget) as unknown as Promise<unknown>)
+        }
+      }
+      await Promise.all([
+        supabase.from('eventos_animal').insert(
+          targetIds.map(animal_id => ({
+            animal_id,
+            tipo: masivoForm.tipo as EventoAnimal['tipo'],
+            descripcion: masivoForm.descripcion,
+            fecha: masivoForm.fecha,
+            costo: masivoForm.costo ? parseFloat(masivoForm.costo) : null,
+            proxima_fecha: masivoForm.proxima_fecha || null,
+          }))
+        ),
+        ...reproOps,
+      ])
     }
 
     setSavingMasivo(false)
@@ -310,6 +353,10 @@ export default function AnimalesPage() {
     if (showInactivos && filterEstado && a.estado !== filterEstado) return false
     if (filterLote && a.lote_id !== filterLote) return false
     if (filterProposito && a.proposito !== filterProposito) return false
+    if (filterEstadoRepro) {
+      if (a.sexo !== 'hembra') return false
+      if ((a.estado_reproductivo ?? null) !== filterEstadoRepro) return false
+    }
     return true
   })
 
@@ -413,6 +460,14 @@ export default function AnimalesPage() {
             <option value="muerto">Muerto</option>
           </select>
         )}
+        {hasHembras && (
+          <select value={filterEstadoRepro} onChange={e => setFilterEstadoRepro(e.target.value)} style={filterSelectStyle}>
+            <option value="">Estado repro. (todas)</option>
+            <option value="escotera">Escoteras</option>
+            <option value="prenada">Preñadas</option>
+            <option value="parida">Paridas</option>
+          </select>
+        )}
       </div>
 
       {/* Toggle inactivos */}
@@ -464,6 +519,7 @@ export default function AnimalesPage() {
                   { k: 'raza', l: 'Raza', s: true },
                   { k: 'lote', l: 'Lote', s: true },
                   { k: 'proposito', l: 'Propósito', s: false },
+                  { k: 'repro', l: 'Estado Repro.', s: false },
                   { k: 'estado', l: 'Estado', s: false },
                   { k: 'peso', l: 'Peso (kg)', s: false },
                   { k: 'acciones', l: 'Acciones', s: false },
@@ -478,7 +534,7 @@ export default function AnimalesPage() {
             </thead>
             <tbody>
               {displayFinal.length === 0 ? (
-                <tr><td colSpan={9} style={{ padding: '32px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin animales registrados</td></tr>
+                <tr><td colSpan={10} style={{ padding: '32px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin animales registrados</td></tr>
               ) : displayFinal.map((a, i) => (
                 <tr key={a.id} style={{ borderBottom: i < displayFinal.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
                   <td style={{ padding: '12px 16px', fontWeight: 500, color: '#1c1a17' }}>{a.codigo}</td>
@@ -489,6 +545,13 @@ export default function AnimalesPage() {
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.raza ?? '—'}</td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.lotes?.nombre ?? '—'}</td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.proposito ? propLabels[a.proposito] : '—'}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    {a.sexo === 'hembra' && a.estado_reproductivo ? (
+                      <span style={{ ...reproBadge[a.estado_reproductivo], padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 500 }}>
+                        {reproLabels[a.estado_reproductivo] ?? a.estado_reproductivo}
+                      </span>
+                    ) : '—'}
+                  </td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{ ...badgeColors[a.estado], padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 500 }}>{a.estado}</span>
                   </td>
@@ -747,7 +810,7 @@ export default function AnimalesPage() {
                 <div><label style={labelStyle}>Código *</label><input value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} placeholder="A-001" required style={inputStyle} /></div>
                 <div><label style={labelStyle}>Nombre</label><input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Lucero" style={inputStyle} /></div>
                 <div><label style={labelStyle}>Raza</label><input value={form.raza} onChange={e => setForm(f => ({ ...f, raza: e.target.value }))} placeholder="Holstein" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Sexo</label><select value={form.sexo} onChange={e => setForm(f => ({ ...f, sexo: e.target.value }))} style={selectStyle}><option value="">Seleccionar</option><option value="hembra">Hembra</option><option value="macho">Macho</option></select></div>
+                <div><label style={labelStyle}>Sexo</label><select value={form.sexo} onChange={e => setForm(f => ({ ...f, sexo: e.target.value, estado_reproductivo: '', fecha_parto_estimada: '' }))} style={selectStyle}><option value="">Seleccionar</option><option value="hembra">Hembra</option><option value="macho">Macho</option></select></div>
                 <div>
                   <label style={labelStyle}>Fecha de nacimiento</label>
                   <input type="date" value={form.fecha_nacimiento} max={todayStr} onChange={e => setForm(f => ({ ...f, fecha_nacimiento: e.target.value }))} style={inputStyle} />
@@ -755,6 +818,23 @@ export default function AnimalesPage() {
                 <div><label style={labelStyle}>Propósito</label><select value={form.proposito} onChange={e => setForm(f => ({ ...f, proposito: e.target.value }))} style={selectStyle}><option value="">Seleccionar</option><option value="leche">Leche</option><option value="carne">Carne</option><option value="doble_proposito">Doble propósito</option></select></div>
                 <div><label style={labelStyle}>Lote</label><select value={form.lote_id} onChange={e => setForm(f => ({ ...f, lote_id: e.target.value }))} style={selectStyle}><option value="">Sin lote</option>{lotes.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}</select></div>
                 <div><label style={labelStyle}>Peso actual (kg)</label><input type="number" step="0.1" value={form.peso_actual} onChange={e => setForm(f => ({ ...f, peso_actual: e.target.value }))} placeholder="350" style={inputStyle} /></div>
+                {form.sexo === 'hembra' && (
+                  <div>
+                    <label style={labelStyle}>Estado reproductivo</label>
+                    <select value={form.estado_reproductivo} onChange={e => setForm(f => ({ ...f, estado_reproductivo: e.target.value, fecha_parto_estimada: '' }))} style={selectStyle}>
+                      <option value="">Sin especificar</option>
+                      <option value="escotera">Escotera</option>
+                      <option value="prenada">Preñada</option>
+                      <option value="parida">Parida</option>
+                    </select>
+                  </div>
+                )}
+                {form.sexo === 'hembra' && form.estado_reproductivo === 'prenada' && (
+                  <div>
+                    <label style={labelStyle}>Fecha parto estimada</label>
+                    <input type="date" value={form.fecha_parto_estimada} onChange={e => setForm(f => ({ ...f, fecha_parto_estimada: e.target.value }))} style={inputStyle} />
+                  </div>
+                )}
               </div>
               <div><label style={labelStyle}>Notas</label><textarea value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} rows={2} placeholder="Observaciones adicionales..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
