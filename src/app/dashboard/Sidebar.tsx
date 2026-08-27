@@ -70,7 +70,17 @@ const navItems = [
   },
 ]
 
-export function Sidebar({ email }: { email: string }) {
+const equipoIcon = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <circle cx="6" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.4" fill="none" />
+    <path d="M1 13C1 10.8 3.2 9 6 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    <circle cx="11" cy="6" r="2" stroke="currentColor" strokeWidth="1.4" fill="none" />
+    <path d="M8.5 13C8.5 11.3 9.6 10 11 10C12.4 10 13.5 11.3 13.5 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    <path d="M6 13H15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+  </svg>
+)
+
+export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colaborador' | null }) {
   const pathname = usePathname()
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
@@ -84,6 +94,8 @@ export function Sidebar({ email }: { email: string }) {
     router.push('/login')
     router.refresh()
   }
+
+  const isAdmin = rol === 'admin'
 
   return (
     <aside
@@ -163,6 +175,40 @@ export function Sidebar({ email }: { email: string }) {
             </Link>
           )
         })}
+
+        {/* Equipo — solo admins */}
+        {isAdmin && (() => {
+          const href = '/dashboard/equipo'
+          const isActive = pathname.startsWith(href)
+          const isHovered = hovered === href
+          return (
+            <Link
+              href={href}
+              onMouseEnter={() => setHovered(href)}
+              onMouseLeave={() => setHovered(null)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 16px',
+                borderRadius: '8px',
+                textDecoration: 'none',
+                fontFamily: 'var(--font-sans), sans-serif',
+                fontSize: '14px',
+                transition: 'background-color 0.15s, color 0.15s',
+                backgroundColor: isActive
+                  ? 'rgba(26,107,69,0.4)'
+                  : isHovered
+                  ? 'rgba(255,255,255,0.08)'
+                  : 'transparent',
+                color: isActive ? '#6ee7b7' : isHovered ? '#ffffff' : 'rgba(255,255,255,0.6)',
+              }}
+            >
+              {equipoIcon}
+              Equipo
+            </Link>
+          )
+        })()}
       </nav>
 
       {/* User + sign out */}
@@ -175,18 +221,37 @@ export function Sidebar({ email }: { email: string }) {
           gap: '8px',
         }}
       >
-        <span
-          style={{
-            fontFamily: 'var(--font-sans), sans-serif',
-            fontSize: '12px',
-            color: 'rgba(255,255,255,0.4)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {email}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span
+            style={{
+              fontFamily: 'var(--font-sans), sans-serif',
+              fontSize: '12px',
+              color: 'rgba(255,255,255,0.4)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {email}
+          </span>
+          {rol && (
+            <span style={{
+              flexShrink: 0,
+              fontSize: '10px',
+              fontFamily: 'var(--font-sans), sans-serif',
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              backgroundColor: rol === 'admin' ? 'rgba(26,107,69,0.4)' : 'rgba(37,99,235,0.35)',
+              color: rol === 'admin' ? '#6ee7b7' : '#93c5fd',
+            }}>
+              {rol === 'admin' ? 'Admin' : 'Colabor.'}
+            </span>
+          )}
+        </div>
         <button
           onClick={handleSignOut}
           disabled={signingOut}

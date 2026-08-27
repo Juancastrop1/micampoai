@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import { getFincaAndRol } from '@/lib/finca'
 import type { Finca } from '@/lib/types'
 
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
@@ -86,8 +87,7 @@ export default function CalendarioPage() {
 
   async function loadData() {
     const supabase = createClient()
-    const { data: fincas } = await supabase.from('fincas').select('*').limit(1)
-    const currentFinca: Finca | null = fincas?.[0] ?? null
+    const { finca: currentFinca } = await getFincaAndRol()
     setFinca(currentFinca)
     if (!currentFinca) { setLoading(false); return }
 

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import { getFincaAndRol } from '@/lib/finca'
 import type { Animal, EventoAnimal, Lote, RegistroLeche } from '@/lib/types'
 
 const inputStyle: React.CSSProperties = {
@@ -34,6 +35,7 @@ const emptyEvento = (today: string): EventoForm => ({ tipo: '', descripcion: '',
 export default function AnimalDetailPage({ params }: { params: { id: string } }) {
   const today = new Date().toISOString().split('T')[0]
   const [animal, setAnimal] = useState<Animal | null>(null)
+  const [rol, setRol] = useState<'admin' | 'colaborador' | null>(null)
   const [lotes, setLotes] = useState<Lote[]>([])
   const [eventos, setEventos] = useState<EventoAnimal[]>([])
   const [loading, setLoading] = useState(true)
@@ -74,6 +76,8 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
 
   async function loadData() {
     const supabase = createClient()
+    const { rol: currentRol } = await getFincaAndRol()
+    setRol(currentRol)
     const [animalRes, eventosRes] = await Promise.all([
       supabase.from('animales').select('*, lotes(nombre)').eq('id', params.id).single(),
       supabase.from('eventos_animal').select('*').eq('animal_id', params.id).order('fecha', { ascending: false }),
@@ -206,6 +210,8 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
     await reloadEventos()
   }
 
+  const isAdmin = rol === 'admin'
+
   if (loading) return <div style={{ padding: '32px', fontFamily: 'var(--font-sans), sans-serif', color: '#8c7f74' }}>Cargando...</div>
   if (!animal) return <div style={{ padding: '32px', fontFamily: 'var(--font-sans), sans-serif', color: '#4a4540' }}>Animal no encontrado.</div>
 
@@ -277,7 +283,9 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
             <div>
               <label style={labelStyle}>Estado</label>
               <select value={estado} onChange={e => setEstado(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                <option value="activo">Activo</option><option value="vendido">Vendido</option><option value="muerto">Muerto</option>
+                <option value="activo">Activo</option>
+                {isAdmin && <option value="vendido">Vendido</option>}
+                {isAdmin && <option value="muerto">Muerto</option>}
               </select>
             </div>
             <div>
@@ -403,10 +411,12 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
                           style={{ padding: '4px 10px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '6px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', cursor: 'pointer', color: '#4a4540' }}>
                           Editar
                         </button>
-                        <button onClick={() => setEventoToDelete(ev)}
-                          style={{ padding: '4px 10px', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '6px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', cursor: 'pointer', color: '#8B1A1A' }}>
-                          Eliminar
-                        </button>
+                        {isAdmin && (
+                          <button onClick={() => setEventoToDelete(ev)}
+                            style={{ padding: '4px 10px', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '6px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', cursor: 'pointer', color: '#8B1A1A' }}>
+                            Eliminar
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

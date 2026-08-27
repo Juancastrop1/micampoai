@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import { getFincaAndRol } from '@/lib/finca'
 import type { Animal, Finca, Lote } from '@/lib/types'
 
 const todayStr = new Date().toISOString().split('T')[0]
@@ -54,6 +55,7 @@ type EditForm = { tipo: string; descripcion: string; fecha: string; costo: strin
 
 export default function EventosPage() {
   const [finca, setFinca] = useState<Finca | null>(null)
+  const [rol, setRol] = useState<'admin' | 'colaborador' | null>(null)
   const [allEventos, setAllEventos] = useState<EventoRow[]>([])
   const [lotes, setLotes] = useState<Lote[]>([])
   const [animales, setAnimales] = useState<Animal[]>([])
@@ -81,9 +83,9 @@ export default function EventosPage() {
 
   async function loadData() {
     const supabase = createClient()
-    const { data: fincas } = await supabase.from('fincas').select('*').limit(1)
-    const currentFinca: Finca | null = fincas?.[0] ?? null
+    const { finca: currentFinca, rol: currentRol } = await getFincaAndRol()
     setFinca(currentFinca)
+    setRol(currentRol)
     if (!currentFinca) { setLoading(false); return }
 
     const [eventosRes, lotesRes, animalesRes] = await Promise.all([
@@ -99,6 +101,8 @@ export default function EventosPage() {
     setAnimales((animalesRes.data ?? []) as Animal[])
     setLoading(false)
   }
+
+  const isAdmin = rol === 'admin'
 
   // Masivo detection: same tipo + descripcion + fecha = masivo
   const eventoCounts: Record<string, number> = {}
@@ -269,10 +273,12 @@ export default function EventosPage() {
                         style={{ padding: '4px 10px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '6px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', cursor: 'pointer', color: '#4a4540', whiteSpace: 'nowrap' }}>
                         Editar
                       </button>
-                      <button onClick={() => setEventoToDelete(e)}
-                        style={{ padding: '4px 10px', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '6px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', cursor: 'pointer', color: '#8B1A1A', whiteSpace: 'nowrap' }}>
-                        Eliminar
-                      </button>
+                      {isAdmin && (
+                        <button onClick={() => setEventoToDelete(e)}
+                          style={{ padding: '4px 10px', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '6px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', cursor: 'pointer', color: '#8B1A1A', whiteSpace: 'nowrap' }}>
+                          Eliminar
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

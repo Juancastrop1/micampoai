@@ -51,6 +51,21 @@ export type ConfigFinca = {
   updated_at: string
 }
 
+export type FincaUsuario = {
+  id: string
+  finca_id: string
+  user_id: string
+  rol: 'admin' | 'colaborador'
+  created_at: string
+}
+
+export type UserProfile = {
+  id: string
+  email: string
+  nombre: string | null
+  created_at: string
+}
+
 export type EventoAnimal = {
   id: string
   animal_id: string

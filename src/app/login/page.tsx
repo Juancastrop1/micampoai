@@ -40,11 +40,17 @@ export default function LoginPage() {
     setError(null)
     setLoading(true)
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
     if (error) {
       setError('Correo o contraseña incorrectos. Intenta de nuevo.')
       return
+    }
+    if (authData.user) {
+      await supabase.from('user_profiles').upsert(
+        { id: authData.user.id, email: authData.user.email ?? email, nombre: null },
+        { onConflict: 'id', ignoreDuplicates: true }
+      )
     }
     router.push('/dashboard')
     router.refresh()

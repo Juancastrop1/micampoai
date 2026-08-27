@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import { getFincaAndRol } from '@/lib/finca'
 import type { Animal, ConfigFinca, Finca, Lote, RegistroLeche } from '@/lib/types'
 
 const inputStyle: React.CSSProperties = {
@@ -59,6 +60,7 @@ const _initMonth = `${_initD.getFullYear()}-${String(_initD.getMonth()+1).padSta
 
 export default function LechePage() {
   const [finca, setFinca] = useState<Finca | null>(null)
+  const [rol, setRol] = useState<'admin' | 'colaborador' | null>(null)
   const [registros, setRegistros] = useState<RegistroLeche[]>([])
   const [animales, setAnimales] = useState<Animal[]>([])
   const [lotes, setLotes] = useState<Lote[]>([])
@@ -110,9 +112,9 @@ export default function LechePage() {
 
   async function loadData() {
     const supabase = createClient()
-    const { data: fincas } = await supabase.from('fincas').select('*').limit(1)
-    const currentFinca: Finca | null = fincas?.[0] ?? null
+    const { finca: currentFinca, rol: currentRol } = await getFincaAndRol()
     setFinca(currentFinca)
+    setRol(currentRol)
     if (!currentFinca) { setLoading(false); return }
 
     const [regRes, animRes, todosAnimRes, lotRes, confRes, lastPrecioRes] = await Promise.all([
@@ -300,6 +302,8 @@ export default function LechePage() {
     (!filterLote || r.lote_id === filterLote)
   )
 
+  const isAdmin = rol === 'admin'
+
   if (loading) return <div style={{ padding: '32px', fontFamily: 'var(--font-sans), sans-serif', color: '#8c7f74' }}>Cargando...</div>
   if (!finca) return (
     <div style={{ padding: '32px', fontFamily: 'var(--font-sans), sans-serif', color: '#4a4540' }}>
@@ -430,10 +434,12 @@ export default function LechePage() {
                                 style={{ padding: '4px 10px', border: '1px solid rgba(60,45,30,0.2)', borderRadius: '5px', backgroundColor: 'transparent', color: '#4a4540', fontSize: '12px', fontFamily: 'var(--font-sans), sans-serif', cursor: 'pointer' }}>
                                 Editar
                               </button>
-                              <button onClick={() => setRegistroToDelete(r)}
-                                style={{ padding: '4px 10px', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '5px', backgroundColor: 'transparent', color: '#8B1A1A', fontSize: '12px', fontFamily: 'var(--font-sans), sans-serif', cursor: 'pointer' }}>
-                                Eliminar
-                              </button>
+                              {isAdmin && (
+                                <button onClick={() => setRegistroToDelete(r)}
+                                  style={{ padding: '4px 10px', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '5px', backgroundColor: 'transparent', color: '#8B1A1A', fontSize: '12px', fontFamily: 'var(--font-sans), sans-serif', cursor: 'pointer' }}>
+                                  Eliminar
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -605,8 +611,10 @@ export default function LechePage() {
                                       <div style={{ display: 'flex', gap: '5px' }}>
                                         <button onClick={() => openEditRegistro(r)}
                                           style={{ padding: '3px 8px', border: '1px solid rgba(60,45,30,0.2)', borderRadius: '4px', backgroundColor: 'transparent', color: '#4a4540', fontSize: '11px', fontFamily: 'var(--font-sans), sans-serif', cursor: 'pointer' }}>Editar</button>
-                                        <button onClick={() => setRegistroToDelete(r)}
-                                          style={{ padding: '3px 8px', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '4px', backgroundColor: 'transparent', color: '#8B1A1A', fontSize: '11px', fontFamily: 'var(--font-sans), sans-serif', cursor: 'pointer' }}>Eliminar</button>
+                                        {isAdmin && (
+                                          <button onClick={() => setRegistroToDelete(r)}
+                                            style={{ padding: '3px 8px', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '4px', backgroundColor: 'transparent', color: '#8B1A1A', fontSize: '11px', fontFamily: 'var(--font-sans), sans-serif', cursor: 'pointer' }}>Eliminar</button>
+                                        )}
                                       </div>
                                     </td>
                                   </tr>

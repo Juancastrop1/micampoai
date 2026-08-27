@@ -56,7 +56,7 @@ export default function RegisterPage() {
     }
     setLoading(true)
     const supabase = createClient()
-    const { error } = await supabase.auth.signUp({
+    const { data: authData, error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { full_name: name } },
@@ -65,6 +65,12 @@ export default function RegisterPage() {
     if (error) {
       setError(error.message)
       return
+    }
+    if (authData.user) {
+      await supabase.from('user_profiles').upsert(
+        { id: authData.user.id, email, nombre: name || null },
+        { onConflict: 'id' }
+      )
     }
     setSuccess(true)
   }

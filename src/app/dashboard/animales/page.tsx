@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
+import { getFincaAndRol } from '@/lib/finca'
 import type { Animal, EventoAnimal, Finca, Lote } from '@/lib/types'
 
 const todayStr = new Date().toISOString().split('T')[0]
@@ -65,6 +66,7 @@ function BuscarSync({ setBusqueda }: { setBusqueda: (v: string) => void }) {
 
 export default function AnimalesPage() {
   const [finca, setFinca] = useState<Finca | null>(null)
+  const [rol, setRol] = useState<'admin' | 'colaborador' | null>(null)
   const [animales, setAnimales] = useState<Animal[]>([])
   const [lotes, setLotes] = useState<Lote[]>([])
   const [loading, setLoading] = useState(true)
@@ -117,9 +119,9 @@ export default function AnimalesPage() {
 
   async function loadData() {
     const supabase = createClient()
-    const { data: fincas } = await supabase.from('fincas').select('*').limit(1)
-    const currentFinca: Finca | null = fincas?.[0] ?? null
+    const { finca: currentFinca, rol: currentRol } = await getFincaAndRol()
     setFinca(currentFinca)
+    setRol(currentRol)
     if (!currentFinca) { setLoading(false); return }
     const [animalesRes, lotesRes] = await Promise.all([
       supabase.from('animales').select('*, lotes(nombre)').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }),
@@ -218,6 +220,8 @@ export default function AnimalesPage() {
     setLoteToEdit(lote); setLoteNombre(lote.nombre); setLoteDesc(lote.descripcion ?? ''); setShowCreateLote(false); setLoteError(null)
   }
 
+  const isAdmin = rol === 'admin'
+
   // Evento masivo
   const activeAnimales = animales.filter(a => a.estado === 'activo')
   const masivoLoteAnimals = masivoLoteId ? activeAnimales.filter(a => a.lote_id === masivoLoteId) : []
@@ -282,6 +286,10 @@ export default function AnimalesPage() {
   async function handleMasivoSubmit(e: React.FormEvent) {
     e.preventDefault()
     setMasivoError(null)
+    if (masivoForm.tipo === 'venta' && !isAdmin) {
+      setMasivoError('Solo los administradores pueden registrar ventas.')
+      return
+    }
     if (!masivoForm.tipo || !masivoForm.fecha) return
     if (masivoForm.tipo !== 'venta' && !masivoForm.descripcion) return
     const targetIds = masivoMode === 'lote' ? masivoLoteAnimals.map(a => a.id) : masivoSelected
@@ -372,10 +380,12 @@ export default function AnimalesPage() {
             style={{ backgroundColor: 'transparent', color: '#4a4540', border: '1px solid rgba(60,45,30,0.25)', borderRadius: '8px', padding: '10px 16px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>
             Evento masivo
           </button>
-          <button onClick={() => { setShowLotesModal(true); setLoteError(null); setShowCreateLote(false); setLoteToEdit(null) }}
-            style={{ backgroundColor: 'transparent', color: '#1a6b45', border: '1px solid rgba(26,107,69,0.4)', borderRadius: '8px', padding: '10px 16px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>
-            Gestionar lotes
-          </button>
+          {isAdmin && (
+            <button onClick={() => { setShowLotesModal(true); setLoteError(null); setShowCreateLote(false); setLoteToEdit(null) }}
+              style={{ backgroundColor: 'transparent', color: '#1a6b45', border: '1px solid rgba(26,107,69,0.4)', borderRadius: '8px', padding: '10px 16px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>
+              Gestionar lotes
+            </button>
+          )}
           <button onClick={() => setShowModal(true)}
             style={{ backgroundColor: '#1a6b45', color: 'white', border: 'none', borderRadius: '8px', padding: '10px 20px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>
             + Agregar animal
@@ -513,7 +523,7 @@ export default function AnimalesPage() {
                     <option value="vacuna">Vacuna</option>
                     <option value="tratamiento">Tratamiento</option>
                     <option value="pesaje">Pesaje</option>
-                    <option value="venta">Venta</option>
+                    {isAdmin && <option value="venta">Venta</option>}
                     <option value="otro">Otro</option>
                   </select>
                 </div>

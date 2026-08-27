@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
+import { getFincaAndRol } from '@/lib/finca'
 import type { Finca } from '@/lib/types'
 
 type Metrics = {
@@ -119,8 +120,7 @@ export default function DashboardPage() {
 
   async function loadData() {
     const supabase = createClient()
-    const { data } = await supabase.from('fincas').select('*').limit(1)
-    const currentFinca: Finca | null = data?.[0] ?? null
+    const { finca: currentFinca } = await getFincaAndRol()
     setFinca(currentFinca)
 
     if (currentFinca) {
@@ -238,6 +238,11 @@ export default function DashboardPage() {
       .insert({ nombre: nombre.trim(), ubicacion: ubicacion.trim() || null, user_id: userData.user?.id })
       .select()
       .single()
+    if (data && userData.user) {
+      await supabase.from('finca_usuarios').insert({
+        finca_id: data.id, user_id: userData.user.id, rol: 'admin',
+      })
+    }
     setSaving(false)
     if (data) { setShowModal(false); setNombre(''); setUbicacion(''); loadData() }
   }
