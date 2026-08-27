@@ -233,18 +233,33 @@ export default function DashboardPage() {
     setSaving(true)
     const supabase = createClient()
     const { data: userData } = await supabase.auth.getUser()
+    if (!userData.user) { setSaving(false); return }
+
     const { data } = await supabase
       .from('fincas')
-      .insert({ nombre: nombre.trim(), ubicacion: ubicacion.trim() || null, user_id: userData.user?.id })
+      .insert({ nombre: nombre.trim(), ubicacion: ubicacion.trim() || null, user_id: userData.user.id })
       .select()
       .single()
-    if (data && userData.user) {
-      await supabase.from('finca_usuarios').insert({
-        finca_id: data.id, user_id: userData.user.id, rol: 'admin',
-      })
+
+    if (data) {
+      await Promise.all([
+        supabase.from('finca_usuarios').insert({
+          finca_id: data.id, user_id: userData.user.id, rol: 'admin',
+        }),
+        supabase.from('user_profiles').upsert(
+          { id: userData.user.id, email: userData.user.email ?? '', nombre: null },
+          { onConflict: 'id', ignoreDuplicates: true }
+        ),
+      ])
     }
+
     setSaving(false)
-    if (data) { setShowModal(false); setNombre(''); setUbicacion(''); loadData() }
+    if (data) {
+      setShowModal(false)
+      setNombre('')
+      setUbicacion('')
+      await loadData()
+    }
   }
 
   async function handleQuickRegister(e: React.FormEvent) {
