@@ -98,6 +98,7 @@ export function Sidebar({ email }: { email: string }) {
   const [nuevaNombre, setNuevaNombre] = useState('')
   const [nuevaUbicacion, setNuevaUbicacion] = useState('')
   const [savingFinca, setSavingFinca] = useState(false)
+  const [errorFinca, setErrorFinca] = useState<string | null>(null)
 
   useEffect(() => { loadFincas() }, [])
 
@@ -147,58 +148,80 @@ export function Sidebar({ email }: { email: string }) {
     e.preventDefault()
     if (!nuevaNombre.trim()) return
     setSavingFinca(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setSavingFinca(false); return }
+    setErrorFinca(null)
 
-    const { data: newFinca, error: fincaError } = await supabase
-      .from('fincas')
-      .insert({ nombre: nuevaNombre.trim(), ubicacion: nuevaUbicacion.trim() || null, user_id: user.id })
-      .select()
-      .single()
-
-    if (fincaError || !newFinca) {
-      console.error('Error creando finca:', fincaError)
-      setSavingFinca(false)
-      return
-    }
-
-    const { error: fuError } = await supabase.from('finca_usuarios').insert({
-      finca_id: newFinca.id, user_id: user.id, rol: 'admin',
-    })
-    if (fuError) console.error('Error insertando finca_usuarios:', fuError)
-
-    // Auto-share con otros admins de fincas existentes — no bloquea si falla
     try {
-      const existingIds = fincas.map(r => r.finca.id)
-      if (existingIds.length > 0) {
-        const { data: otherAdmins } = await supabase
-          .from('finca_usuarios')
-          .select('user_id')
-          .in('finca_id', existingIds)
-          .eq('rol', 'admin')
-          .neq('user_id', user.id)
+      const supabase = createClient()
 
-        if (otherAdmins?.length) {
-          await Promise.all(
-            otherAdmins.map(a =>
-              supabase.from('finca_usuarios').insert({
-                finca_id: newFinca.id, user_id: a.user_id, rol: 'admin',
-              })
-            )
-          )
-        }
+      console.log('Paso 1: obteniendo usuario')
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setErrorFinca('No hay sesión activa. Recarga la página.')
+        setSavingFinca(false)
+        return
       }
-    } catch (shareErr) {
-      console.error('Error compartiendo finca con otros admins:', shareErr)
-    }
+      console.log('Paso 1 resultado: userId =', user.id)
 
-    saveSelectedFincaId(newFinca.id)
-    setShowNuevaFinca(false)
-    setNuevaNombre('')
-    setNuevaUbicacion('')
-    setSavingFinca(false)
-    window.location.reload()
+      const nombre = nuevaNombre.trim()
+      const ubicacion = nuevaUbicacion.trim() || null
+      console.log('Paso 2: insertando finca', { nombre, ubicacion, userId: user.id })
+      const { data: newFinca, error: fincaError } = await supabase
+        .from('fincas')
+        .insert({ nombre, ubicacion, user_id: user.id })
+        .select()
+        .single()
+      console.log('Paso 2 resultado:', newFinca, fincaError)
+
+      if (fincaError || !newFinca) {
+        console.error('Error creando finca:', fincaError)
+        setErrorFinca(fincaError?.message ?? 'Error al crear la finca. Intenta de nuevo.')
+        setSavingFinca(false)
+        return
+      }
+
+      console.log('Paso 3: insertando finca_usuarios')
+      const { data: fuData, error: fuError } = await supabase.from('finca_usuarios').insert({
+        finca_id: newFinca.id, user_id: user.id, rol: 'admin',
+      }).select()
+      console.log('Paso 3 resultado:', fuData, fuError)
+      if (fuError) console.error('Error insertando finca_usuarios:', fuError)
+
+      // Auto-share con otros admins de fincas existentes — no bloquea si falla
+      try {
+        const existingIds = fincas.map(r => r.finca.id)
+        if (existingIds.length > 0) {
+          const { data: otherAdmins } = await supabase
+            .from('finca_usuarios')
+            .select('user_id')
+            .in('finca_id', existingIds)
+            .eq('rol', 'admin')
+            .neq('user_id', user.id)
+
+          if (otherAdmins?.length) {
+            await Promise.all(
+              otherAdmins.map(a =>
+                supabase.from('finca_usuarios').insert({
+                  finca_id: newFinca.id, user_id: a.user_id, rol: 'admin',
+                })
+              )
+            )
+          }
+        }
+      } catch (shareErr) {
+        console.error('Error compartiendo finca con otros admins:', shareErr)
+      }
+
+      saveSelectedFincaId(newFinca.id)
+      setShowNuevaFinca(false)
+      setNuevaNombre('')
+      setNuevaUbicacion('')
+      setSavingFinca(false)
+      window.location.reload()
+    } catch (err) {
+      console.error('Error inesperado creando finca:', err)
+      setErrorFinca('Error inesperado. Revisa la consola y vuelve a intentarlo.')
+      setSavingFinca(false)
+    }
   }
 
   async function handleSignOut() {
@@ -459,7 +482,7 @@ export function Sidebar({ email }: { email: string }) {
       {/* Nueva finca modal */}
       {showNuevaFinca && (
         <div
-          onClick={() => setShowNuevaFinca(false)}
+          onClick={() => { setShowNuevaFinca(false); setErrorFinca(null) }}
           style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}
         >
           <div
@@ -487,10 +510,15 @@ export function Sidebar({ email }: { email: string }) {
                   style={{ width: '100%', padding: '10px 14px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: '#f0ece4', fontSize: '14px', fontFamily: 'var(--font-sans), sans-serif', outline: 'none', boxSizing: 'border-box' }}
                 />
               </div>
+              {errorFinca && (
+                <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8B1A1A', margin: 0, padding: '8px 12px', backgroundColor: '#fff0f0', borderRadius: '6px', border: '1px solid rgba(139,26,26,0.2)' }}>
+                  {errorFinca}
+                </p>
+              )}
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
                 <button
                   type="button"
-                  onClick={() => setShowNuevaFinca(false)}
+                  onClick={() => { setShowNuevaFinca(false); setErrorFinca(null) }}
                   style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}
                 >
                   Cancelar
