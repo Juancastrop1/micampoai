@@ -3,8 +3,10 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import type { Finca } from '@/lib/types'
+import type { UserRole } from '@/lib/finca'
 
 const navItems = [
   {
@@ -80,12 +82,111 @@ const equipoIcon = (
   </svg>
 )
 
-export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colaborador' | null }) {
+export function Sidebar({ email }: { email: string }) {
   const pathname = usePathname()
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
   const [hovered, setHovered] = useState<string | null>(null)
   const [busquedaGlobal, setBusquedaGlobal] = useState('')
+
+  const [fincas, setFincas] = useState<{ finca: Finca; rol: UserRole }[]>([])
+  const [selectedFincaId, setSelectedFincaId] = useState<string | null>(null)
+  const [currentRol, setCurrentRol] = useState<UserRole>(null)
+
+  const [showNuevaFinca, setShowNuevaFinca] = useState(false)
+  const [nuevaNombre, setNuevaNombre] = useState('')
+  const [nuevaUbicacion, setNuevaUbicacion] = useState('')
+  const [savingFinca, setSavingFinca] = useState(false)
+
+  useEffect(() => { loadFincas() }, [])
+
+  async function loadFincas() {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: fuRows } = await supabase
+      .from('finca_usuarios')
+      .select('finca_id, rol')
+      .eq('user_id', user.id)
+
+    if (!fuRows?.length) return
+
+    const fincaIds = fuRows.map(r => r.finca_id as string).filter(Boolean)
+    const { data: fincasData } = await supabase
+      .from('fincas')
+      .select('*')
+      .in('id', fincaIds)
+
+    if (!fincasData?.length) return
+
+    const result = fuRows
+      .map(r => ({
+        finca: fincasData.find(f => f.id === r.finca_id) as Finca | undefined,
+        rol: r.rol as UserRole,
+      }))
+      .filter((r): r is { finca: Finca; rol: UserRole } => r.finca != null)
+
+    setFincas(result)
+
+    const savedId = localStorage.getItem('selectedFincaId')
+    const selected = result.find(r => r.finca.id === savedId) ?? result[0]
+    if (selected) {
+      setSelectedFincaId(selected.finca.id)
+      setCurrentRol(selected.rol)
+    }
+  }
+
+  function handleChangeFinca(fincaId: string) {
+    localStorage.setItem('selectedFincaId', fincaId)
+    window.location.reload()
+  }
+
+  async function handleCrearFinca(e: React.FormEvent) {
+    e.preventDefault()
+    if (!nuevaNombre.trim()) return
+    setSavingFinca(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setSavingFinca(false); return }
+
+    const { data: newFinca } = await supabase
+      .from('fincas')
+      .insert({ nombre: nuevaNombre.trim(), ubicacion: nuevaUbicacion.trim() || null, user_id: user.id })
+      .select()
+      .single()
+
+    if (newFinca) {
+      await supabase.from('finca_usuarios').insert({
+        finca_id: newFinca.id, user_id: user.id, rol: 'admin',
+      })
+
+      const existingIds = fincas.map(r => r.finca.id)
+      if (existingIds.length > 0) {
+        const { data: otherAdmins } = await supabase
+          .from('finca_usuarios')
+          .select('user_id')
+          .in('finca_id', existingIds)
+          .eq('rol', 'admin')
+          .neq('user_id', user.id)
+
+        if (otherAdmins?.length) {
+          await Promise.all(
+            otherAdmins.map(a =>
+              supabase.from('finca_usuarios').insert({
+                finca_id: newFinca.id, user_id: a.user_id, rol: 'admin',
+              })
+            )
+          )
+        }
+      }
+
+      localStorage.setItem('selectedFincaId', newFinca.id)
+      window.location.reload()
+    } else {
+      setSavingFinca(false)
+    }
+  }
 
   async function handleSignOut() {
     setSigningOut(true)
@@ -95,7 +196,23 @@ export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colabor
     router.refresh()
   }
 
-  const isAdmin = rol === 'admin'
+  const isAdmin = currentRol === 'admin'
+
+  const selectStyle: React.CSSProperties = {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    border: 'none',
+    borderRadius: '6px',
+    padding: '6px 10px',
+    fontFamily: 'var(--font-sans), sans-serif',
+    fontSize: '13px',
+    color: '#ffffff',
+    outline: 'none',
+    cursor: 'pointer',
+    appearance: 'none' as const,
+    WebkitAppearance: 'none' as const,
+  }
 
   return (
     <aside
@@ -110,7 +227,7 @@ export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colabor
       }}
     >
       {/* Logo */}
-      <div style={{ padding: '24px 20px 16px' }}>
+      <div style={{ padding: '24px 20px 12px' }}>
         <Image
           src="/micampo_logo_cream.png"
           alt="Mi Campo.AI"
@@ -119,6 +236,52 @@ export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colabor
           priority
           style={{ objectFit: 'contain', mixBlendMode: 'multiply', width: '140px' }}
         />
+
+        {/* Finca selector */}
+        <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {fincas.length > 1 ? (
+            <select
+              value={selectedFincaId ?? ''}
+              onChange={e => handleChangeFinca(e.target.value)}
+              style={selectStyle}
+            >
+              {fincas.map(r => (
+                <option key={r.finca.id} value={r.finca.id} style={{ backgroundColor: '#2a2824', color: '#ffffff' }}>
+                  {r.finca.nombre}
+                </option>
+              ))}
+            </select>
+          ) : fincas.length === 1 ? (
+            <span style={{
+              flex: 1, minWidth: 0,
+              fontFamily: 'var(--font-sans), sans-serif',
+              fontSize: '13px', fontWeight: 500,
+              color: 'rgba(255,255,255,0.75)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {fincas[0].finca.nombre}
+            </span>
+          ) : (
+            <span style={{ flex: 1 }} />
+          )}
+          <button
+            onClick={() => setShowNuevaFinca(true)}
+            title="Nueva finca"
+            style={{
+              flexShrink: 0,
+              width: '26px', height: '26px',
+              backgroundColor: 'rgba(255,255,255,0.1)',
+              border: 'none', borderRadius: '6px',
+              color: 'rgba(255,255,255,0.7)',
+              fontSize: '16px', lineHeight: '24px',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-sans), sans-serif',
+            }}
+          >
+            +
+          </button>
+        </div>
+
         <input
           type="text"
           value={busquedaGlobal}
@@ -131,7 +294,7 @@ export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colabor
           }}
           placeholder="Buscar..."
           style={{
-            marginTop: '14px', width: '100%', boxSizing: 'border-box',
+            marginTop: '10px', width: '100%', boxSizing: 'border-box',
             padding: '8px 12px',
             backgroundColor: 'rgba(255,255,255,0.08)',
             border: 'none', borderRadius: '6px',
@@ -236,7 +399,7 @@ export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colabor
           >
             {email}
           </span>
-          {rol && (
+          {currentRol && (
             <span style={{
               flexShrink: 0,
               fontSize: '10px',
@@ -245,10 +408,10 @@ export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colabor
               letterSpacing: '0.04em',
               padding: '2px 6px',
               borderRadius: '4px',
-              backgroundColor: rol === 'admin' ? 'rgba(26,107,69,0.4)' : 'rgba(37,99,235,0.35)',
-              color: rol === 'admin' ? '#6ee7b7' : '#93c5fd',
+              backgroundColor: currentRol === 'admin' ? 'rgba(26,107,69,0.4)' : 'rgba(37,99,235,0.35)',
+              color: currentRol === 'admin' ? '#6ee7b7' : '#93c5fd',
             }}>
-              {rol === 'admin' ? 'Admin' : 'Colabor.'}
+              {currentRol === 'admin' ? 'Admin' : 'Colabor.'}
             </span>
           )}
         </div>
@@ -279,6 +442,58 @@ export function Sidebar({ email, rol }: { email: string; rol: 'admin' | 'colabor
           {signingOut ? 'Cerrando...' : 'Cerrar sesión'}
         </button>
       </div>
+
+      {/* Nueva finca modal */}
+      {showNuevaFinca && (
+        <div
+          onClick={() => setShowNuevaFinca(false)}
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
+          >
+            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '22px', color: '#1c1a17', margin: '0 0 20px' }}>Nueva finca</h2>
+            <form onSubmit={handleCrearFinca} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 500, color: '#4a4540', display: 'block', marginBottom: '6px' }}>Nombre *</label>
+                <input
+                  value={nuevaNombre}
+                  onChange={e => setNuevaNombre(e.target.value)}
+                  placeholder="Finca La Esperanza"
+                  required
+                  style={{ width: '100%', padding: '10px 14px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: '#f0ece4', fontSize: '14px', fontFamily: 'var(--font-sans), sans-serif', outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 500, color: '#4a4540', display: 'block', marginBottom: '6px' }}>Ubicación</label>
+                <input
+                  value={nuevaUbicacion}
+                  onChange={e => setNuevaUbicacion(e.target.value)}
+                  placeholder="Municipio, Departamento"
+                  style={{ width: '100%', padding: '10px 14px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: '#f0ece4', fontSize: '14px', fontFamily: 'var(--font-sans), sans-serif', outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowNuevaFinca(false)}
+                  style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingFinca}
+                  style={{ padding: '10px 24px', backgroundColor: '#1a6b45', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: savingFinca ? 'not-allowed' : 'pointer', opacity: savingFinca ? 0.7 : 1 }}
+                >
+                  {savingFinca ? 'Guardando...' : 'Crear finca'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </aside>
   )
 }

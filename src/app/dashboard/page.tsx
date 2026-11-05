@@ -13,6 +13,8 @@ type Metrics = {
   numLotes: number
   produccionHoy: number
   ingresosSemana: number
+  lecheSemana: number
+  ventasSemana: number
 }
 
 type ProximoEvento = {
@@ -145,6 +147,7 @@ export default function DashboardPage() {
         lecheChartRes, proximosRes, proximosPartosRes,
         animRecRes, lechRecRes, evRecRes,
         hembrasLoteRes, allLotesRes, lastPrecioRes,
+        ventasSemRes, ventasRecRes,
       ] = await Promise.all([
         supabase.from('animales').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id).eq('estado', 'activo'),
         supabase.from('animales').select('id', { count: 'exact', head: true }).eq('finca_id', currentFinca.id).eq('estado', 'activo').eq('sexo', 'hembra'),
@@ -176,18 +179,26 @@ export default function DashboardPage() {
         supabase.from('lotes').select('id, nombre').eq('finca_id', currentFinca.id),
         // Quick register: last precio usado
         supabase.from('registro_leche').select('precio_litro').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        // Ventas animales esta semana
+        supabase.from('ventas_animales').select('precio').eq('finca_id', currentFinca.id).gte('fecha', weekStart).lte('fecha', today),
+        // Ventas animales recientes para actividad
+        supabase.from('ventas_animales').select('id, precio, created_at, animales(codigo)').eq('finca_id', currentFinca.id).order('created_at', { ascending: false }).limit(5),
       ])
 
       const produccionHoy = (lechHoyRes.data ?? []).reduce((s: number, r: { litros: number }) => s + r.litros, 0)
-      const ingresosSemana = (lechSemRes.data ?? []).reduce(
+      const lecheSemana = (lechSemRes.data ?? []).reduce(
         (s: number, r: { litros: number; precio_litro: number | null }) => s + r.litros * (r.precio_litro ?? 0), 0
       )
+      const ventasSemana = (ventasSemRes.data ?? []).reduce(
+        (s: number, r: { precio: number | null }) => s + (r.precio ?? 0), 0
+      )
+      const ingresosSemana = lecheSemana + ventasSemana
       setMetrics({
         animalesActivos: animalesRes.count ?? 0,
         hembrasActivas: hembrasRes.count ?? 0,
         machosActivos: machosRes.count ?? 0,
         numLotes: lotesRes.count ?? 0,
-        produccionHoy, ingresosSemana,
+        produccionHoy, ingresosSemana, lecheSemana, ventasSemana,
       })
 
       const lecheRows = (lecheChartRes.data ?? []) as { fecha: string; litros: number }[]
@@ -204,6 +215,7 @@ export default function DashboardPage() {
       type AR = { id: string; codigo: string; nombre: string | null; created_at: string }
       type LR = { id: string; litros: number; created_at: string }
       type ER = { id: string; tipo: string; created_at: string; animales: { id: string; codigo: string } | null }
+      type VR = { id: string; precio: number | null; created_at: string; animales: { codigo: string } | null }
 
       const acts: ActivityItem[] = [
         ...(animRecRes.data ?? []).map((a: AR) => ({
@@ -224,6 +236,13 @@ export default function DashboardPage() {
           icon: 'evento' as const,
           tipo: e.tipo,
           href: e.animales?.id ? `/dashboard/animales/${e.animales.id}` : '/dashboard/eventos',
+        })),
+        ...((ventasRecRes.data ?? []) as unknown as VR[]).map((v: VR) => ({
+          key: `v-${v.id}`, created_at: v.created_at,
+          label: `Venta${v.animales ? `: ${v.animales.codigo}` : ''} — $${Math.round(v.precio ?? 0).toLocaleString('es-CO')}`,
+          icon: 'evento' as const,
+          tipo: 'venta',
+          href: '/dashboard/animales',
         })),
       ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5)
       setActividad(acts)
@@ -351,12 +370,18 @@ export default function DashboardPage() {
   }
 
   const metricCards = [
-    { label: 'Animales activos', value: metrics?.animalesActivos ?? '—', big: true, href: '/dashboard/animales' },
-    { label: 'Hembras activas', value: metrics?.hembrasActivas ?? '—', big: true, href: '/dashboard/animales' },
-    { label: 'Machos activos', value: metrics?.machosActivos ?? '—', big: true, href: '/dashboard/animales' },
-    { label: 'Número de lotes', value: metrics?.numLotes ?? '—', big: true, href: '/dashboard/animales' },
-    { label: 'Producción hoy (L)', value: metrics ? metrics.produccionHoy.toFixed(1) : '—', big: true, href: '/dashboard/leche' },
-    { label: 'Ingresos semana (COP)', value: metrics ? `$${Math.round(metrics.ingresosSemana).toLocaleString('es-CO')}` : '—', big: false, href: '/dashboard/leche' },
+    { label: 'Animales activos', value: metrics?.animalesActivos ?? '—', big: true, href: '/dashboard/animales', subtitle: undefined },
+    { label: 'Hembras activas', value: metrics?.hembrasActivas ?? '—', big: true, href: '/dashboard/animales', subtitle: undefined },
+    { label: 'Machos activos', value: metrics?.machosActivos ?? '—', big: true, href: '/dashboard/animales', subtitle: undefined },
+    { label: 'Número de lotes', value: metrics?.numLotes ?? '—', big: true, href: '/dashboard/animales', subtitle: undefined },
+    { label: 'Producción hoy (L)', value: metrics ? metrics.produccionHoy.toFixed(1) : '—', big: true, href: '/dashboard/leche', subtitle: undefined },
+    {
+      label: 'Ingresos semana (COP)',
+      value: metrics ? `$${Math.round(metrics.ingresosSemana).toLocaleString('es-CO')}` : '—',
+      big: false,
+      href: '/dashboard/leche',
+      subtitle: metrics ? `Leche: $${Math.round(metrics.lecheSemana).toLocaleString('es-CO')} · Ventas: $${Math.round(metrics.ventasSemana).toLocaleString('es-CO')}` : undefined,
+    },
   ]
 
   return (
@@ -392,6 +417,7 @@ export default function DashboardPage() {
             <ArrowIcon />
             <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74' }}>{card.label}</span>
             <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: card.big ? '40px' : '28px', color: '#1a6b45', lineHeight: 1 }}>{card.value}</span>
+            {card.subtitle && <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74', marginTop: '2px' }}>{card.subtitle}</span>}
           </div>
         ))}
       </div>

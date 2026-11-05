@@ -3,6 +3,16 @@ import type { Finca } from '@/lib/types'
 
 export type UserRole = 'admin' | 'colaborador' | null
 
+export function getSelectedFincaId(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem('selectedFincaId')
+}
+
+export function setSelectedFincaId(fincaId: string): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem('selectedFincaId', fincaId)
+}
+
 export async function getFincaAndRol(): Promise<{
   finca: Finca | null
   rol: UserRole
@@ -12,24 +22,28 @@ export async function getFincaAndRol(): Promise<{
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { finca: null, rol: null, userId: null }
 
-  const { data: fuData } = await supabase
+  const { data: fuRows } = await supabase
     .from('finca_usuarios')
     .select('finca_id, rol')
     .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle()
 
-  if (!fuData?.finca_id) return { finca: null, rol: (fuData?.rol as UserRole) ?? null, userId: user.id }
+  if (!fuRows?.length) return { finca: null, rol: null, userId: user.id }
 
-  const { data: fincaData } = await supabase
+  const fincaIds = fuRows.map(r => r.finca_id as string).filter(Boolean)
+  const { data: fincasData } = await supabase
     .from('fincas')
     .select('*')
-    .eq('id', fuData.finca_id)
-    .single()
+    .in('id', fincaIds)
+
+  if (!fincasData?.length) return { finca: null, rol: null, userId: user.id }
+
+  const selectedId = getSelectedFincaId()
+  const selectedRow = fuRows.find(r => r.finca_id === selectedId) ?? fuRows[0]
+  const selectedFinca = fincasData.find(f => f.id === selectedRow.finca_id) ?? fincasData[0]
 
   return {
-    finca: (fincaData as Finca | null) ?? null,
-    rol: (fuData.rol as UserRole) ?? null,
+    finca: (selectedFinca as Finca) ?? null,
+    rol: (selectedRow.rol as UserRole) ?? null,
     userId: user.id,
   }
 }
