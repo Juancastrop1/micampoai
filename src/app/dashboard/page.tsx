@@ -98,12 +98,19 @@ const todayDisplay = new Date().toLocaleDateString('es-CO', { day: 'numeric', mo
 export default function DashboardPage() {
   const router = useRouter()
   const [finca, setFinca] = useState<Finca | null | undefined>(undefined)
+  const [rol, setRol] = useState<'admin' | 'colaborador' | null>(null)
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [nombre, setNombre] = useState('')
   const [ubicacion, setUbicacion] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Edit finca
+  const [showEditFinca, setShowEditFinca] = useState(false)
+  const [editNombre, setEditNombre] = useState('')
+  const [editUbicacion, setEditUbicacion] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   const [weekLeche, setWeekLeche] = useState<{ start: string; end: string; litros: number }[]>([])
   const [proximosEventos, setProximosEventos] = useState<ProximoEvento[]>([])
@@ -130,8 +137,9 @@ export default function DashboardPage() {
 
   async function loadData() {
     const supabase = createClient()
-    const { finca: currentFinca } = await getFincaAndRol()
+    const { finca: currentFinca, rol: currentRol } = await getFincaAndRol()
     setFinca(currentFinca)
+    setRol(currentRol)
 
     if (currentFinca) {
       const today = new Date().toISOString().split('T')[0]
@@ -300,6 +308,21 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleEditFinca(e: React.FormEvent) {
+    e.preventDefault()
+    if (!finca || !editNombre.trim()) return
+    setSavingEdit(true)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('fincas')
+      .update({ nombre: editNombre.trim(), ubicacion: editUbicacion.trim() || null })
+      .eq('id', finca.id)
+    if (error) console.error('Error actualizando finca:', error)
+    setSavingEdit(false)
+    setShowEditFinca(false)
+    loadData()
+  }
+
   async function handleQuickRegister(e: React.FormEvent) {
     e.preventDefault()
     if (!finca || !qLitros) return
@@ -386,9 +409,22 @@ export default function DashboardPage() {
 
   return (
     <div style={{ padding: '32px', maxWidth: '960px' }}>
-      <h1 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '28px', color: '#1c1a17', margin: '0 0 4px' }}>
-        {finca ? finca.nombre : 'Dashboard'}
-      </h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+        <h1 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '28px', color: '#1c1a17', margin: 0 }}>
+          {finca ? finca.nombre : 'Dashboard'}
+        </h1>
+        {finca && rol === 'admin' && (
+          <button
+            onClick={() => { setEditNombre(finca.nombre); setEditUbicacion(finca.ubicacion ?? ''); setShowEditFinca(true) }}
+            title="Editar finca"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#8c7f74', display: 'flex', alignItems: 'center', borderRadius: '4px' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M9.5 1.5L12.5 4.5M2 12H5L12 5L9 2L2 9V12Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
+      </div>
       <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74', margin: '0 0 28px' }}>
         {finca?.ubicacion ?? 'Resumen general de tu finca'}
       </p>
@@ -593,6 +629,36 @@ export default function DashboardPage() {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit finca modal */}
+      {showEditFinca && (
+        <div onClick={() => setShowEditFinca(false)}
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px' }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '440px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '24px', color: '#1c1a17', margin: '0 0 20px' }}>Editar finca</h2>
+            <form onSubmit={handleEditFinca} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 500, color: '#4a4540', display: 'block', marginBottom: '6px' }}>Nombre *</label>
+                <input value={editNombre} onChange={e => setEditNombre(e.target.value)} required
+                  style={{ width: '100%', padding: '10px 14px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: '#f0ece4', fontSize: '14px', fontFamily: 'var(--font-sans), sans-serif', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 500, color: '#4a4540', display: 'block', marginBottom: '6px' }}>Ubicación</label>
+                <input value={editUbicacion} onChange={e => setEditUbicacion(e.target.value)} placeholder="Municipio, Departamento"
+                  style={{ width: '100%', padding: '10px 14px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: '#f0ece4', fontSize: '14px', fontFamily: 'var(--font-sans), sans-serif', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                <button type="button" onClick={() => setShowEditFinca(false)}
+                  style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>Cancelar</button>
+                <button type="submit" disabled={savingEdit}
+                  style={{ padding: '10px 24px', backgroundColor: '#1a6b45', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: savingEdit ? 'not-allowed' : 'pointer', opacity: savingEdit ? 0.7 : 1 }}>
+                  {savingEdit ? 'Guardando...' : 'Guardar'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

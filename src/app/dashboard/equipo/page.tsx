@@ -56,12 +56,29 @@ export default function EquipoPage() {
     if (!currentFinca) { setLoading(false); return }
 
     const supabase = createClient()
-    const { data } = await supabase
+    const { data: fuRows } = await supabase
       .from('finca_usuarios')
-      .select('id, user_id, rol, created_at, user_profiles(email, nombre)')
+      .select('id, user_id, rol, created_at')
       .eq('finca_id', currentFinca.id)
       .order('created_at', { ascending: true })
-    setMembers((data ?? []) as unknown as Member[])
+
+    const userIds = (fuRows ?? []).map(r => r.user_id as string).filter(Boolean)
+    const { data: profiles } = userIds.length > 0
+      ? await supabase.from('user_profiles').select('id, email, nombre').in('id', userIds)
+      : { data: [] as { id: string; email: string; nombre: string | null }[] }
+
+    const profileMap: Record<string, { email: string; nombre: string | null }> = {}
+    ;(profiles ?? []).forEach((p: { id: string; email: string; nombre: string | null }) => {
+      profileMap[p.id] = { email: p.email, nombre: p.nombre }
+    })
+
+    setMembers((fuRows ?? []).map(r => ({
+      id: r.id as string,
+      user_id: r.user_id as string,
+      rol: r.rol as 'admin' | 'colaborador',
+      created_at: r.created_at as string,
+      user_profiles: profileMap[r.user_id as string] ?? null,
+    })))
     setLoading(false)
   }
 
@@ -148,10 +165,10 @@ export default function EquipoPage() {
   return (
     <div style={{ padding: '32px', maxWidth: '800px' }}>
       <h1 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '28px', color: '#1c1a17', margin: '0 0 4px' }}>
-        Equipo
+        Equipo de {finca?.nombre ?? 'la finca'}
       </h1>
       <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74', margin: '0 0 28px' }}>
-        Miembros con acceso a {finca?.nombre ?? 'la finca'}
+        Miembros con acceso a esta finca
       </p>
 
       {/* Members table */}

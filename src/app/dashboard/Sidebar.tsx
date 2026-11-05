@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { Finca } from '@/lib/types'
+import { setSelectedFincaId as saveSelectedFincaId } from '@/lib/finca'
 import type { UserRole } from '@/lib/finca'
 
 const navItems = [
@@ -150,17 +151,25 @@ export function Sidebar({ email }: { email: string }) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setSavingFinca(false); return }
 
-    const { data: newFinca } = await supabase
+    const { data: newFinca, error: fincaError } = await supabase
       .from('fincas')
       .insert({ nombre: nuevaNombre.trim(), ubicacion: nuevaUbicacion.trim() || null, user_id: user.id })
       .select()
       .single()
 
-    if (newFinca) {
-      await supabase.from('finca_usuarios').insert({
-        finca_id: newFinca.id, user_id: user.id, rol: 'admin',
-      })
+    if (fincaError || !newFinca) {
+      console.error('Error creando finca:', fincaError)
+      setSavingFinca(false)
+      return
+    }
 
+    const { error: fuError } = await supabase.from('finca_usuarios').insert({
+      finca_id: newFinca.id, user_id: user.id, rol: 'admin',
+    })
+    if (fuError) console.error('Error insertando finca_usuarios:', fuError)
+
+    // Auto-share con otros admins de fincas existentes — no bloquea si falla
+    try {
       const existingIds = fincas.map(r => r.finca.id)
       if (existingIds.length > 0) {
         const { data: otherAdmins } = await supabase
@@ -180,12 +189,16 @@ export function Sidebar({ email }: { email: string }) {
           )
         }
       }
-
-      localStorage.setItem('selectedFincaId', newFinca.id)
-      window.location.reload()
-    } else {
-      setSavingFinca(false)
+    } catch (shareErr) {
+      console.error('Error compartiendo finca con otros admins:', shareErr)
     }
+
+    saveSelectedFincaId(newFinca.id)
+    setShowNuevaFinca(false)
+    setNuevaNombre('')
+    setNuevaUbicacion('')
+    setSavingFinca(false)
+    window.location.reload()
   }
 
   async function handleSignOut() {
