@@ -58,6 +58,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [savedMsg, setSavedMsg] = useState('Cambios guardados')
   const [formError, setFormError] = useState<string | null>(null)
 
   // Reproductive state
@@ -174,6 +175,8 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
     const supabase = createClient()
     const er = sexo === 'hembra' && estadoRepro ? estadoRepro : null
     const fp = er === 'prenada' && fechaPartoEst ? fechaPartoEst : null
+    const nuevoPeso = peso ? parseFloat(peso) : null
+    const pesoChanged = nuevoPeso !== null && nuevoPeso !== animal.peso_actual
     await supabase.from('animales').update({
       codigo: codigo.trim(),
       nombre: nombre.trim() || null,
@@ -183,17 +186,28 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
       proposito: (proposito || null) as Animal['proposito'],
       estado: estado as Animal['estado'],
       lote_id: loteId || null,
-      peso_actual: peso ? parseFloat(peso) : null,
+      peso_actual: nuevoPeso,
       notas: notas.trim() || null,
       estado_reproductivo: er,
       fecha_parto_estimada: fp,
     }).eq('id', animal.id)
+    if (pesoChanged) {
+      await supabase.from('eventos_animal').insert({
+        animal_id: animal.id,
+        tipo: 'pesaje',
+        descripcion: `Pesaje: ${nuevoPeso} kg`,
+        fecha: today,
+        costo: nuevoPeso,
+      })
+      await reloadEventos()
+    }
     // Refresh animal to keep estado in sync
     const { data } = await supabase.from('animales').select('*, lotes(nombre)').eq('id', animal.id).single()
     if (data) setAnimal(data as Animal)
     setSaving(false)
+    setSavedMsg(pesoChanged ? 'Peso actualizado y pesaje registrado en el historial.' : 'Cambios guardados')
     setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+    setTimeout(() => setSaved(false), 4000)
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -469,7 +483,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
               style={{ padding: '10px 24px', backgroundColor: '#1a6b45', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
               {saving ? 'Guardando...' : 'Guardar cambios'}
             </button>
-            {saved && <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#1a6b45' }}>✓ Cambios guardados</span>}
+            {saved && <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#1a6b45' }}>✓ {savedMsg}</span>}
           </div>
         </form>
       </div>
@@ -707,6 +721,11 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
         }
         const tableRows = [...pesajesAsc].reverse()
         const showGanancia = pesajesAsc.length > 1
+        const primerP = pesajesAsc[0]
+        const ultimoP = pesajesAsc[pesajesAsc.length - 1]
+        const gananciaTotal = showGanancia && primerP.costo != null && ultimoP.costo != null ? ultimoP.costo - primerP.costo : null
+        const diasTotal = showGanancia ? Math.round((new Date(ultimoP.fecha + 'T00:00:00').getTime() - new Date(primerP.fecha + 'T00:00:00').getTime()) / 86400000) : 0
+        const promDiario = gananciaTotal != null && diasTotal > 0 ? gananciaTotal / diasTotal : null
         return (
           <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '24px', marginBottom: '24px' }}>
             <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#1c1a17', margin: '0 0 18px' }}>Historial de peso</h2>
@@ -734,6 +753,13 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
                     <div key={p.id} style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-sans), sans-serif', fontSize: '9px', color: i === last6.length - 1 ? '#1a6b45' : '#8c7f74' }}>{fmtPDate(p.fecha)}</div>
                   ))}
                 </div>
+              </div>
+            )}
+            {gananciaTotal != null && (
+              <div style={{ backgroundColor: '#e8f5ee', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#1c1a17', lineHeight: 1.5 }}>
+                <span style={{ fontWeight: 600, color: '#1a6b45' }}>Ganancia total: {gananciaTotal >= 0 ? '+' : ''}{gananciaTotal.toFixed(1)} kg</span>
+                {' '}en {diasTotal} días (desde {primerP.fecha} hasta {ultimoP.fecha})
+                {promDiario != null && <span> — Promedio: {promDiario >= 0 ? '+' : ''}{promDiario.toFixed(2)} kg/día</span>}
               </div>
             )}
             <div style={{ overflowX: 'auto' }}>
@@ -823,7 +849,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
                     </td>
                     <td style={{ padding: '12px 16px', color: '#4a4540' }}>
                       {ev.tipo === 'pesaje'
-                        ? (ev.costo != null ? <span style={{ color: '#1a6b45', fontWeight: 500 }}>{ev.costo} kg</span> : '—')
+                        ? '—'
                         : (ev.costo != null ? `$${ev.costo.toLocaleString('es-CO')}` : '—')}
                     </td>
                     <td style={{ padding: '12px 16px', color: '#4a4540', whiteSpace: 'nowrap' }}>{ev.proxima_fecha ?? '—'}</td>

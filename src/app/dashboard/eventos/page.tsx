@@ -264,7 +264,7 @@ export default function EventosPage() {
                   <td style={{ padding: '11px 14px', color: '#4a4540', whiteSpace: 'nowrap' }}>{animalLabel(e)}</td>
                   <td style={{ padding: '11px 14px', color: '#4a4540', whiteSpace: 'nowrap' }}>{e.animales?.lotes?.nombre ?? '—'}</td>
                   <td style={{ padding: '11px 14px', color: '#4a4540', whiteSpace: 'nowrap' }}>
-                    {e.costo != null ? `$${e.costo.toLocaleString('es-CO')}` : '—'}
+                    {e.tipo === 'pesaje' ? '—' : (e.costo != null ? `$${e.costo.toLocaleString('es-CO')}` : '—')}
                   </td>
                   <td style={{ padding: '11px 14px', color: '#4a4540', whiteSpace: 'nowrap' }}>{e.proxima_fecha ?? '—'}</td>
                   <td style={{ padding: '11px 14px' }}>
