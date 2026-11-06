@@ -128,6 +128,9 @@ export default function AnimalesPage() {
   const [masivoForm, setMasivoForm] = useState<MasivoForm>({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '', precioVentaTotal: '', comprador: '' })
   const [masivoLoteId, setMasivoLoteId] = useState('')
   const [masivoSelected, setMasivoSelected] = useState<string[]>([])
+  const [masivoWeights, setMasivoWeights] = useState<Record<string, string>>({})
+  const [masivoVentaItems, setMasivoVentaItems] = useState<Record<string, { peso: string; precioKg: string }>>({})
+  const [masivoVentaPrecioBase, setMasivoVentaPrecioBase] = useState('')
   const [savingMasivo, setSavingMasivo] = useState(false)
   const [masivoError, setMasivoError] = useState<string | null>(null)
 
@@ -205,7 +208,7 @@ export default function AnimalesPage() {
 
   // Lote management
   const loteCount = animales.reduce((acc, a) => {
-    if (a.lote_id) acc[a.lote_id] = (acc[a.lote_id] ?? 0) + 1
+    if (a.lote_id && a.estado === 'activo') acc[a.lote_id] = (acc[a.lote_id] ?? 0) + 1
     return acc
   }, {} as Record<string, number>)
 
@@ -250,6 +253,7 @@ export default function AnimalesPage() {
   const activeAnimales = animales.filter(a => a.estado === 'activo')
   const masivoLoteAnimals = masivoLoteId ? activeAnimales.filter(a => a.lote_id === masivoLoteId) : []
   const ventaAnimalsCount = masivoMode === 'lote' ? masivoLoteAnimals.length : masivoSelected.length
+  const masivoTargetAnimals = masivoMode === 'lote' ? masivoLoteAnimals : activeAnimales.filter(a => masivoSelected.includes(a.id))
 
   function toggleMasivoAnimal(id: string) {
     setMasivoSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
@@ -263,28 +267,59 @@ export default function AnimalesPage() {
     const supabase = createClient()
 
     if (masivoForm.tipo === 'venta') {
-      const precioPorCabeza = masivoForm.precioVentaTotal ? parseFloat(masivoForm.precioVentaTotal) / targetIds.length : 0
+      const eventInserts = targetIds.map(animal_id => {
+        const item = masivoVentaItems[animal_id]
+        const anim = activeAnimales.find(a => a.id === animal_id)
+        const peso = parseFloat(item?.peso ?? (anim?.peso_actual != null ? String(anim.peso_actual) : '0')) || 0
+        const precioKg = parseFloat(item?.precioKg ?? masivoVentaPrecioBase) || 0
+        const total = peso * precioKg
+        return {
+          animal_id,
+          tipo: 'venta' as EventoAnimal['tipo'],
+          descripcion: `Venta: ${peso > 0 ? peso : '?'}kg x $${precioKg.toLocaleString('es-CO')}/kg = $${Math.round(total).toLocaleString('es-CO')}${masivoForm.comprador ? ` - Comprador: ${masivoForm.comprador}` : ''}`,
+          fecha: masivoForm.fecha,
+          costo: total > 0 ? total : null,
+          proxima_fecha: null,
+        }
+      })
+      const ventasInserts = targetIds.map(animal_id => {
+        const item = masivoVentaItems[animal_id]
+        const anim = activeAnimales.find(a => a.id === animal_id)
+        const peso = parseFloat(item?.peso ?? (anim?.peso_actual != null ? String(anim.peso_actual) : '0')) || 0
+        const precioKg = parseFloat(item?.precioKg ?? masivoVentaPrecioBase) || 0
+        return {
+          animal_id,
+          finca_id: finca!.id,
+          fecha: masivoForm.fecha,
+          precio: peso * precioKg,
+          comprador: masivoForm.comprador || null,
+        }
+      })
       await Promise.all([
-        supabase.from('eventos_animal').insert(
-          targetIds.map(animal_id => ({
-            animal_id,
-            tipo: 'venta' as EventoAnimal['tipo'],
-            descripcion: masivoForm.descripcion || `Venta${masivoForm.comprador ? ` a ${masivoForm.comprador}` : ''}`,
-            fecha: masivoForm.fecha,
-            costo: precioPorCabeza > 0 ? precioPorCabeza : null,
-            proxima_fecha: null,
-          }))
-        ),
+        supabase.from('eventos_animal').insert(eventInserts),
         supabase.from('animales').update({ estado: 'vendido' }).in('id', targetIds),
-        supabase.from('ventas_animales').insert(
-          targetIds.map(animal_id => ({
-            animal_id,
-            finca_id: finca!.id,
-            fecha: masivoForm.fecha,
-            precio: precioPorCabeza,
-            comprador: masivoForm.comprador || null,
-          }))
-        ),
+        supabase.from('ventas_animales').insert(ventasInserts),
+      ])
+    } else if (masivoForm.tipo === 'pesaje') {
+      const eventInserts = targetIds.map(animal_id => {
+        const anim = activeAnimales.find(a => a.id === animal_id)
+        const pesoStr = masivoWeights[animal_id] ?? (anim?.peso_actual != null ? String(anim.peso_actual) : '')
+        const peso = parseFloat(pesoStr) || 0
+        return {
+          animal_id,
+          tipo: 'pesaje' as EventoAnimal['tipo'],
+          descripcion: masivoForm.descripcion.trim() || `Pesaje: ${peso > 0 ? peso : '?'} kg`,
+          fecha: masivoForm.fecha,
+          costo: peso > 0 ? peso : null,
+          proxima_fecha: null,
+        }
+      })
+      const weightUpdates = targetIds
+        .filter(id => { const v = masivoWeights[id]; return v && parseFloat(v) > 0 })
+        .map(id => supabase.from('animales').update({ peso_actual: parseFloat(masivoWeights[id]) }).eq('id', id))
+      await Promise.all([
+        supabase.from('eventos_animal').insert(eventInserts),
+        ...weightUpdates,
       ])
     } else {
       // Part 6: update reproductive state for hembras on servicio/parto
@@ -322,7 +357,7 @@ export default function AnimalesPage() {
     setShowVentaConfirm(false)
     setShowMasivoModal(false)
     setMasivoForm({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '', precioVentaTotal: '', comprador: '' })
-    setMasivoLoteId(''); setMasivoSelected([]); setMasivoError(null)
+    setMasivoLoteId(''); setMasivoSelected([]); setMasivoWeights({}); setMasivoVentaItems({}); setMasivoVentaPrecioBase(''); setMasivoError(null)
     loadData()
   }
 
@@ -334,7 +369,7 @@ export default function AnimalesPage() {
       return
     }
     if (!masivoForm.tipo || !masivoForm.fecha) return
-    if (masivoForm.tipo !== 'venta' && !masivoForm.descripcion) return
+    if (masivoForm.tipo !== 'venta' && masivoForm.tipo !== 'pesaje' && !masivoForm.descripcion) return
     const targetIds = masivoMode === 'lote' ? masivoLoteAnimals.map(a => a.id) : masivoSelected
     if (targetIds.length === 0) { setMasivoError('Selecciona al menos un animal.'); return }
     if (masivoForm.tipo === 'venta') { setShowVentaConfirm(true); return }
@@ -543,7 +578,13 @@ export default function AnimalesPage() {
                   </td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.nombre ?? '—'}</td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.raza ?? '—'}</td>
-                  <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.lotes?.nombre ?? '—'}</td>
+                  <td style={{ padding: '12px 16px', color: '#4a4540' }}>
+                    {a.lotes?.nombre
+                      ? a.estado !== 'activo'
+                        ? <span style={{ textDecoration: 'line-through', color: '#8c7f74', fontSize: '13px' }}>{a.lotes.nombre}</span>
+                        : a.lotes.nombre
+                      : '—'}
+                  </td>
                   <td style={{ padding: '12px 16px', color: '#4a4540' }}>{a.proposito ? propLabels[a.proposito] : '—'}</td>
                   <td style={{ padding: '12px 16px' }}>
                     {a.sexo === 'hembra' && a.estado_reproductivo ? (
@@ -595,27 +636,11 @@ export default function AnimalesPage() {
                   <input type="date" value={masivoForm.fecha} onChange={e => setMasivoForm(f => ({ ...f, fecha: e.target.value }))} required max={todayStr} style={inputStyle} />
                 </div>
               </div>
-              <div>
-                <label style={labelStyle}>Descripción{masivoForm.tipo !== 'venta' ? ' *' : ''}</label>
-                <input value={masivoForm.descripcion} onChange={e => setMasivoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Describe el evento" required={masivoForm.tipo !== 'venta'} style={inputStyle} />
-              </div>
-              {masivoForm.tipo === 'venta' ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div>
-                    <label style={labelStyle}>Precio total venta (COP)</label>
-                    <input type="number" step="0.01" min="0" value={masivoForm.precioVentaTotal} onChange={e => setMasivoForm(f => ({ ...f, precioVentaTotal: e.target.value }))} placeholder="0" style={inputStyle} />
-                    {masivoForm.precioVentaTotal && ventaAnimalsCount > 0 && (
-                      <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#1a6b45', margin: '4px 0 0' }}>
-                        ${Math.round(parseFloat(masivoForm.precioVentaTotal) / ventaAnimalsCount).toLocaleString('es-CO')} por cabeza
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Comprador (opcional)</label>
-                    <input value={masivoForm.comprador} onChange={e => setMasivoForm(f => ({ ...f, comprador: e.target.value }))} placeholder="Nombre del comprador" style={inputStyle} />
-                  </div>
+              {masivoForm.tipo && masivoForm.tipo !== 'pesaje' && masivoForm.tipo !== 'venta' && (<>
+                <div>
+                  <label style={labelStyle}>Descripción *</label>
+                  <input value={masivoForm.descripcion} onChange={e => setMasivoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Describe el evento" required style={inputStyle} />
                 </div>
-              ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div>
                     <label style={labelStyle}>Costo (COP)</label>
@@ -626,7 +651,7 @@ export default function AnimalesPage() {
                     <input type="date" value={masivoForm.proxima_fecha} onChange={e => setMasivoForm(f => ({ ...f, proxima_fecha: e.target.value }))} style={inputStyle} />
                   </div>
                 </div>
-              )}
+              </>)}
 
               {/* Mode toggle */}
               <div>
@@ -680,6 +705,93 @@ export default function AnimalesPage() {
                 </div>
               )}
 
+              {/* Pesaje: inputs de peso por animal */}
+              {masivoForm.tipo === 'pesaje' && masivoTargetAnimals.length > 0 && (
+                <div>
+                  <label style={labelStyle}>Peso por animal (kg)</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: '#f0ece4', padding: '10px 14px', maxHeight: '220px', overflowY: 'auto' }}>
+                    {masivoTargetAnimals.map(a => (
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'space-between' }}>
+                        <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#1c1a17', flex: 1 }}>{a.codigo}{a.nombre ? ` — ${a.nombre}` : ''}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <input type="number" step="0.1" min="0"
+                            value={masivoWeights[a.id] ?? (a.peso_actual != null ? String(a.peso_actual) : '')}
+                            onChange={e => setMasivoWeights(prev => ({ ...prev, [a.id]: e.target.value }))}
+                            placeholder={a.peso_actual != null ? String(a.peso_actual) : 'kg'}
+                            style={{ width: '80px', padding: '5px 8px', border: '1px solid rgba(60,45,30,0.25)', borderRadius: '6px', fontSize: '13px', backgroundColor: '#fff', fontFamily: 'var(--font-sans), sans-serif', outline: 'none' }} />
+                          <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#8c7f74' }}>kg</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Pesaje: descripción opcional */}
+              {masivoForm.tipo === 'pesaje' && (
+                <div>
+                  <label style={labelStyle}>Descripción (opcional)</label>
+                  <input value={masivoForm.descripcion} onChange={e => setMasivoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Pesaje mensual de control" style={inputStyle} />
+                </div>
+              )}
+              {/* Venta: precio base + items individuales */}
+              {masivoForm.tipo === 'venta' && (
+                <>
+                  <div>
+                    <label style={labelStyle}>Precio por kg base (COP) *</label>
+                    <input type="number" step="1" min="0" value={masivoVentaPrecioBase}
+                      onChange={e => setMasivoVentaPrecioBase(e.target.value)}
+                      placeholder="Ej: 8000" required style={inputStyle} />
+                    <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74', margin: '4px 0 0' }}>Se aplica a todos; ajusta por animal abajo.</p>
+                  </div>
+                  {masivoTargetAnimals.length > 0 && (
+                    <div>
+                      <label style={labelStyle}>Peso y precio por animal</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: '#f0ece4', padding: '10px 14px', maxHeight: '240px', overflowY: 'auto' }}>
+                        {masivoTargetAnimals.map(a => {
+                          const item = masivoVentaItems[a.id]
+                          const pesoVal = item?.peso ?? (a.peso_actual != null ? String(a.peso_actual) : '')
+                          const precioKgVal = item?.precioKg ?? masivoVentaPrecioBase
+                          const total = (parseFloat(pesoVal) || 0) * (parseFloat(precioKgVal) || 0)
+                          return (
+                            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px solid rgba(60,45,30,0.08)' }}>
+                              <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#1c1a17', flex: '1 1 80px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.codigo}{a.nombre ? ` — ${a.nombre}` : ''}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <input type="number" step="0.1" min="0" value={pesoVal}
+                                  onChange={e => setMasivoVentaItems(prev => ({ ...prev, [a.id]: { peso: e.target.value, precioKg: prev[a.id]?.precioKg ?? masivoVentaPrecioBase } }))}
+                                  placeholder="kg" style={{ width: '65px', padding: '4px 6px', border: '1px solid rgba(60,45,30,0.25)', borderRadius: '6px', fontSize: '12px', backgroundColor: '#fff', fontFamily: 'var(--font-sans), sans-serif', outline: 'none' }} />
+                                <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: '#8c7f74' }}>kg×</span>
+                                <input type="number" step="1" min="0" value={precioKgVal}
+                                  onChange={e => setMasivoVentaItems(prev => ({ ...prev, [a.id]: { peso: prev[a.id]?.peso ?? (a.peso_actual != null ? String(a.peso_actual) : ''), precioKg: e.target.value } }))}
+                                  placeholder="$/kg" style={{ width: '75px', padding: '4px 6px', border: '1px solid rgba(60,45,30,0.25)', borderRadius: '6px', fontSize: '12px', backgroundColor: '#fff', fontFamily: 'var(--font-sans), sans-serif', outline: 'none' }} />
+                                <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', color: total > 0 ? '#1a6b45' : '#8c7f74', fontWeight: total > 0 ? 600 : 400, minWidth: '65px' }}>
+                                  {total > 0 ? `$${Math.round(total).toLocaleString('es-CO')}` : '—'}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {(() => {
+                        const grand = masivoTargetAnimals.reduce((s, a) => {
+                          const item = masivoVentaItems[a.id]
+                          const peso = parseFloat(item?.peso ?? (a.peso_actual != null ? String(a.peso_actual) : '0')) || 0
+                          const precioKg = parseFloat(item?.precioKg ?? masivoVentaPrecioBase) || 0
+                          return s + peso * precioKg
+                        }, 0)
+                        return grand > 0 ? (
+                          <div style={{ textAlign: 'right', marginTop: '8px', fontFamily: 'var(--font-serif), serif', fontSize: '20px', color: '#1a6b45' }}>
+                            Total: ${Math.round(grand).toLocaleString('es-CO')}
+                          </div>
+                        ) : null
+                      })()}
+                    </div>
+                  )}
+                  <div>
+                    <label style={labelStyle}>Comprador (opcional)</label>
+                    <input value={masivoForm.comprador} onChange={e => setMasivoForm(f => ({ ...f, comprador: e.target.value }))} placeholder="Nombre del comprador" style={inputStyle} />
+                  </div>
+                </>
+              )}
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
                 <button type="button" onClick={() => setShowMasivoModal(false)}
                   style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>

@@ -90,6 +90,17 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
   // Leche (hembras only)
   const [lecheAnimal, setLecheAnimal] = useState<RegistroLeche[]>([])
   const [hoveredLecheBar, setHoveredLecheBar] = useState<number | null>(null)
+  const [hoveredPesoBar, setHoveredPesoBar] = useState<number | null>(null)
+
+  // Venta individual
+  const [showVentaModal, setShowVentaModal] = useState(false)
+  const [showVentaConfirm, setShowVentaConfirm] = useState(false)
+  const [savingVenta, setSavingVenta] = useState(false)
+  const [ventaFecha, setVentaFecha] = useState(today)
+  const [ventaPeso, setVentaPeso] = useState('')
+  const [ventaPrecioKg, setVentaPrecioKg] = useState('')
+  const [ventaComprador, setVentaComprador] = useState('')
+  const [ventaNotas, setVentaNotas] = useState('')
 
   // Form fields
   const [codigo, setCodigo] = useState('')
@@ -221,15 +232,50 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
     setShowEventoModal(true)
   }
 
+  function openVentaModal() {
+    setVentaFecha(today)
+    setVentaPeso(animal?.peso_actual != null ? String(animal.peso_actual) : '')
+    setVentaPrecioKg('')
+    setVentaComprador('')
+    setVentaNotas('')
+    setShowVentaModal(true)
+  }
+
+  async function handleVenta() {
+    if (!animal || !ventaFecha || !ventaPeso || !ventaPrecioKg) return
+    const peso = parseFloat(ventaPeso)
+    const precioKg = parseFloat(ventaPrecioKg)
+    const total = peso * precioKg
+    setSavingVenta(true)
+    const supabase = createClient()
+    const desc = `Venta: ${peso}kg x $${precioKg.toLocaleString('es-CO')}/kg = $${Math.round(total).toLocaleString('es-CO')}${ventaComprador ? ` - Comprador: ${ventaComprador}` : ''}`
+    await Promise.all([
+      supabase.from('animales').update({ estado: 'vendido', peso_actual: peso }).eq('id', animal.id),
+      supabase.from('eventos_animal').insert({
+        animal_id: animal.id, tipo: 'venta', descripcion: desc, fecha: ventaFecha, costo: total,
+      }),
+      supabase.from('ventas_animales').insert({
+        animal_id: animal.id, finca_id: animal.finca_id, fecha: ventaFecha,
+        precio: total, comprador: ventaComprador || null,
+      }),
+    ])
+    router.push('/dashboard/animales')
+  }
+
   async function handleSaveEvento(e: React.FormEvent) {
     e.preventDefault()
-    if (!animal || !eventoForm.tipo || !eventoForm.descripcion || !eventoForm.fecha) return
+    if (!animal || !eventoForm.tipo || !eventoForm.fecha) return
+    if (eventoForm.tipo !== 'pesaje' && !eventoForm.descripcion) return
+    if (eventoForm.tipo === 'pesaje' && !eventoForm.costo) return
     setSavingEvento(true)
     setPartoMsg(null)
     const supabase = createClient()
+    const descripcionFinal = eventoForm.tipo === 'pesaje'
+      ? (eventoForm.descripcion.trim() || `Pesaje: ${eventoForm.costo} kg`)
+      : eventoForm.descripcion
     const payload = {
       tipo: eventoForm.tipo as EventoAnimal['tipo'],
-      descripcion: eventoForm.descripcion,
+      descripcion: descripcionFinal,
       fecha: eventoForm.fecha,
       costo: eventoForm.costo ? parseFloat(eventoForm.costo) : null,
       proxima_fecha: eventoForm.proxima_fecha || null,
@@ -238,6 +284,12 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
       await supabase.from('eventos_animal').update(payload).eq('id', eventoToEdit.id)
     } else {
       await supabase.from('eventos_animal').insert({ ...payload, animal_id: animal.id })
+      if (eventoForm.tipo === 'pesaje' && eventoForm.costo) {
+        const nuevoPeso = parseFloat(eventoForm.costo)
+        await supabase.from('animales').update({ peso_actual: nuevoPeso }).eq('id', animal.id)
+        setAnimal(prev => prev ? { ...prev, peso_actual: nuevoPeso } : prev)
+        setPeso(eventoForm.costo)
+      }
       // Part 6: update reproductive state
       if (animal.sexo === 'hembra') {
         if (eventoForm.tipo === 'servicio') {
@@ -640,6 +692,101 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
         )
       })()}
 
+      {/* Historial de peso */}
+      {(() => {
+        const pesajesAsc = eventos
+          .filter(e => e.tipo === 'pesaje' && e.costo != null)
+          .sort((a, b) => a.fecha.localeCompare(b.fecha))
+        if (pesajesAsc.length === 0) return null
+        const last6 = pesajesAsc.slice(-6)
+        const maxPeso = Math.max(...last6.map(p => p.costo ?? 0), 1)
+        const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+        function fmtPDate(ds: string): string {
+          const [, m, d] = ds.split('-').map(Number)
+          return `${d} ${months[m-1]}`
+        }
+        const tableRows = [...pesajesAsc].reverse()
+        const showGanancia = pesajesAsc.length > 1
+        return (
+          <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '24px', marginBottom: '24px' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#1c1a17', margin: '0 0 18px' }}>Historial de peso</h2>
+            {last6.length > 1 && (
+              <div style={{ marginBottom: '20px' }}>
+                <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', display: 'block', marginBottom: '10px' }}>Últimos {last6.length} pesajes</span>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '80px' }}>
+                  {last6.map((p, i) => {
+                    const h = Math.max(((p.costo ?? 0) / maxPeso) * 100, 4)
+                    return (
+                      <div key={p.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-end', height: '100%', position: 'relative', cursor: 'default' }}
+                        onMouseEnter={() => setHoveredPesoBar(i)} onMouseLeave={() => setHoveredPesoBar(null)}>
+                        {hoveredPesoBar === i && (
+                          <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1a17', color: 'white', padding: '5px 8px', borderRadius: '5px', fontSize: '11px', fontFamily: 'var(--font-sans), sans-serif', whiteSpace: 'nowrap', zIndex: 10 }}>
+                            {fmtPDate(p.fecha)}<br />{p.costo} kg
+                          </div>
+                        )}
+                        <div style={{ width: '100%', height: `${h}%`, backgroundColor: i === last6.length - 1 ? '#1a6b45' : 'rgba(26,107,69,0.4)', borderRadius: '3px 3px 0 0' }} />
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: '6px', marginTop: '5px' }}>
+                  {last6.map((p, i) => (
+                    <div key={p.id} style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-sans), sans-serif', fontSize: '9px', color: i === last6.length - 1 ? '#1a6b45' : '#8c7f74' }}>{fmtPDate(p.fecha)}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(60,45,30,0.10)' }}>
+                    {['Fecha', 'Peso (kg)', ...(showGanancia ? ['Ganancia (kg)', 'Ganancia diaria'] : [])].map(c => (
+                      <th key={c} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 500, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', whiteSpace: 'nowrap' }}>{c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableRows.map((p, idx) => {
+                    const idxAsc = pesajesAsc.findIndex(x => x.id === p.id)
+                    const prev = idxAsc > 0 ? pesajesAsc[idxAsc - 1] : null
+                    const ganancia = prev && prev.costo != null && p.costo != null ? p.costo - prev.costo : null
+                    let gDiaria: number | null = null
+                    if (ganancia != null && prev) {
+                      const dias = Math.round((new Date(p.fecha + 'T00:00:00').getTime() - new Date(prev.fecha + 'T00:00:00').getTime()) / 86400000)
+                      gDiaria = dias > 0 ? ganancia / dias : null
+                    }
+                    return (
+                      <tr key={p.id} style={{ borderBottom: idx < tableRows.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
+                        <td style={{ padding: '9px 12px', color: '#1c1a17' }}>{p.fecha}</td>
+                        <td style={{ padding: '9px 12px', color: '#1c1a17', fontWeight: 600 }}>{p.costo} kg</td>
+                        {showGanancia && <>
+                          <td style={{ padding: '9px 12px', color: ganancia != null ? (ganancia >= 0 ? '#1a6b45' : '#8B1A1A') : '#8c7f74' }}>
+                            {ganancia != null ? `${ganancia >= 0 ? '+' : ''}${ganancia.toFixed(1)} kg` : '—'}
+                          </td>
+                          <td style={{ padding: '9px 12px', color: gDiaria != null ? (gDiaria >= 0 ? '#1a6b45' : '#8B1A1A') : '#8c7f74' }}>
+                            {gDiaria != null ? `${gDiaria >= 0 ? '+' : ''}${gDiaria.toFixed(2)} kg/día` : '—'}
+                          </td>
+                        </>}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Registrar venta (admin, animal activo) */}
+      {isAdmin && animal.estado === 'activo' && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+          <button onClick={openVentaModal}
+            style={{ padding: '10px 22px', backgroundColor: '#8B1A1A', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>
+            Registrar venta
+          </button>
+        </div>
+      )}
+
       {/* Event history */}
       <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', overflow: 'hidden' }}>
         <div style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(60,45,30,0.08)' }}>
@@ -669,8 +816,16 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{ ...tipoBadge[ev.tipo], padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 500 }}>{tipoLabels[ev.tipo]}</span>
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#4a4540' }}>{ev.descripcion}</td>
-                    <td style={{ padding: '12px 16px', color: '#4a4540' }}>{ev.costo != null ? `$${ev.costo.toLocaleString('es-CO')}` : '—'}</td>
+                    <td style={{ padding: '12px 16px', color: '#4a4540' }}>
+                      {ev.tipo === 'pesaje' && ev.costo != null
+                        ? <span style={{ fontWeight: 600, color: '#1a6b45' }}>{ev.descripcion}</span>
+                        : ev.descripcion}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: '#4a4540' }}>
+                      {ev.tipo === 'pesaje'
+                        ? (ev.costo != null ? <span style={{ color: '#1a6b45', fontWeight: 500 }}>{ev.costo} kg</span> : '—')
+                        : (ev.costo != null ? `$${ev.costo.toLocaleString('es-CO')}` : '—')}
+                    </td>
                     <td style={{ padding: '12px 16px', color: '#4a4540', whiteSpace: 'nowrap' }}>{ev.proxima_fecha ?? '—'}</td>
                     <td style={{ padding: '12px 16px' }}>
                       <div style={{ display: 'flex', gap: '6px' }}>
@@ -755,10 +910,21 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
                 </div>
                 <div><label style={labelStyle}>Fecha *</label><input type="date" value={eventoForm.fecha} onChange={e => setEventoForm(f => ({ ...f, fecha: e.target.value }))} required style={inputStyle} /></div>
               </div>
-              <div><label style={labelStyle}>Descripción *</label><input value={eventoForm.descripcion} onChange={e => setEventoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Describe el evento" required style={inputStyle} /></div>
+              <div>
+                <label style={labelStyle}>{eventoForm.tipo === 'pesaje' ? 'Descripción (opcional)' : 'Descripción *'}</label>
+                <input value={eventoForm.descripcion} onChange={e => setEventoForm(f => ({ ...f, descripcion: e.target.value }))}
+                  placeholder={eventoForm.tipo === 'pesaje' ? 'Ej: Pesaje mensual (auto si vacío)' : 'Describe el evento'}
+                  required={eventoForm.tipo !== 'pesaje'} style={inputStyle} />
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <div><label style={labelStyle}>Costo (COP)</label><input type="number" step="0.01" value={eventoForm.costo} onChange={e => setEventoForm(f => ({ ...f, costo: e.target.value }))} placeholder="0" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Próxima fecha</label><input type="date" value={eventoForm.proxima_fecha} onChange={e => setEventoForm(f => ({ ...f, proxima_fecha: e.target.value }))} style={inputStyle} /></div>
+                <div>
+                  <label style={labelStyle}>{eventoForm.tipo === 'pesaje' ? 'Peso (kg) *' : 'Costo (COP)'}</label>
+                  <input type="number" step="0.1" value={eventoForm.costo} onChange={e => setEventoForm(f => ({ ...f, costo: e.target.value }))}
+                    placeholder={eventoForm.tipo === 'pesaje' ? '340' : '0'} required={eventoForm.tipo === 'pesaje'} style={inputStyle} />
+                </div>
+                {eventoForm.tipo !== 'pesaje' && (
+                  <div><label style={labelStyle}>Próxima fecha</label><input type="date" value={eventoForm.proxima_fecha} onChange={e => setEventoForm(f => ({ ...f, proxima_fecha: e.target.value }))} style={inputStyle} /></div>
+                )}
               </div>
               {/* Part 3: cria fields for parto on hembra (new events only) */}
               {!eventoToEdit && eventoForm.tipo === 'parto' && animal.sexo === 'hembra' && (
@@ -811,6 +977,85 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
           </div>
         </div>
       )}
+      {/* ---- VENTA MODAL ---- */}
+      {showVentaModal && (
+        <div onClick={() => setShowVentaModal(false)}
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '460px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '22px', color: '#1c1a17', margin: '0 0 22px' }}>
+              Registrar venta — {animal.nombre ?? animal.codigo}
+            </h2>
+            <form onSubmit={e => { e.preventDefault(); setShowVentaConfirm(true) }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div>
+                  <label style={labelStyle}>Fecha *</label>
+                  <input type="date" value={ventaFecha} onChange={e => setVentaFecha(e.target.value)} required max={today} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Peso al vender (kg) *</label>
+                  <input type="number" step="0.1" min="0" value={ventaPeso} onChange={e => setVentaPeso(e.target.value)} placeholder="Ej: 340" required style={inputStyle} />
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>Precio por kg (COP) *</label>
+                <input type="number" step="1" min="0" value={ventaPrecioKg} onChange={e => setVentaPrecioKg(e.target.value)} placeholder="Ej: 8000" required style={inputStyle} />
+              </div>
+              {ventaPeso && ventaPrecioKg && parseFloat(ventaPeso) > 0 && parseFloat(ventaPrecioKg) > 0 && (
+                <div style={{ textAlign: 'right', fontFamily: 'var(--font-serif), serif', fontSize: '24px', color: '#1a6b45' }}>
+                  Total: ${Math.round(parseFloat(ventaPeso) * parseFloat(ventaPrecioKg)).toLocaleString('es-CO')}
+                </div>
+              )}
+              <div>
+                <label style={labelStyle}>Comprador (opcional)</label>
+                <input value={ventaComprador} onChange={e => setVentaComprador(e.target.value)} placeholder="Nombre del comprador" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Notas (opcional)</label>
+                <input value={ventaNotas} onChange={e => setVentaNotas(e.target.value)} placeholder="Observaciones adicionales" style={inputStyle} />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                <button type="button" onClick={() => setShowVentaModal(false)}
+                  style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>
+                  Cancelar
+                </button>
+                <button type="submit"
+                  style={{ padding: '10px 24px', backgroundColor: '#8B1A1A', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>
+                  Continuar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---- VENTA CONFIRM ---- */}
+      {showVentaConfirm && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '16px' }}>
+          <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#1c1a17', margin: '0 0 12px' }}>¿Confirmar venta?</h3>
+            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#4a4540', margin: '0 0 8px', lineHeight: 1.6 }}>
+              Vas a registrar la venta de <strong>{animal.codigo}</strong>. El animal pasará a estado <strong>vendido</strong>.
+            </p>
+            {ventaPeso && ventaPrecioKg && (
+              <p style={{ fontFamily: 'var(--font-serif), serif', fontSize: '20px', color: '#1a6b45', margin: '0 0 20px' }}>
+                Total: ${Math.round(parseFloat(ventaPeso) * parseFloat(ventaPrecioKg)).toLocaleString('es-CO')}
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowVentaConfirm(false)}
+                style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>
+                Cancelar
+              </button>
+              <button onClick={handleVenta} disabled={savingVenta}
+                style={{ padding: '10px 24px', backgroundColor: '#8B1A1A', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: savingVenta ? 'not-allowed' : 'pointer', opacity: savingVenta ? 0.7 : 1 }}>
+                {savingVenta ? 'Guardando...' : 'Confirmar venta'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ---- DELETE ANIMAL CONFIRM ---- */}
       {showDeleteAnimal && (
         <div onClick={() => setShowDeleteAnimal(false)}
