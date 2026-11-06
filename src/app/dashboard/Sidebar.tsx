@@ -152,66 +152,19 @@ export function Sidebar({ email }: { email: string }) {
 
     try {
       const supabase = createClient()
+      const { data, error } = await supabase.rpc('crear_finca', {
+        p_nombre: nuevaNombre.trim(),
+        p_ubicacion: nuevaUbicacion.trim() || null,
+      })
 
-      console.log('Paso 1: obteniendo usuario')
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setErrorFinca('No hay sesión activa. Recarga la página.')
-        setSavingFinca(false)
-        return
-      }
-      console.log('Paso 1 resultado: userId =', user.id)
-
-      const nombre = nuevaNombre.trim()
-      const ubicacion = nuevaUbicacion.trim() || null
-      console.log('Paso 2: insertando finca', { nombre, ubicacion, userId: user.id })
-      const { data: newFinca, error: fincaError } = await supabase
-        .from('fincas')
-        .insert({ nombre, ubicacion, user_id: user.id })
-        .select()
-        .single()
-      console.log('Paso 2 resultado:', newFinca, fincaError)
-
-      if (fincaError || !newFinca) {
-        console.error('Error creando finca:', fincaError)
-        setErrorFinca(fincaError?.message ?? 'Error al crear la finca. Intenta de nuevo.')
+      if (error || !data) {
+        console.error('Error en crear_finca RPC:', error)
+        setErrorFinca(error?.message ?? 'Error al crear la finca. Intenta de nuevo.')
         setSavingFinca(false)
         return
       }
 
-      console.log('Paso 3: insertando finca_usuarios')
-      const { data: fuData, error: fuError } = await supabase.from('finca_usuarios').insert({
-        finca_id: newFinca.id, user_id: user.id, rol: 'admin',
-      }).select()
-      console.log('Paso 3 resultado:', fuData, fuError)
-      if (fuError) console.error('Error insertando finca_usuarios:', fuError)
-
-      // Auto-share con otros admins de fincas existentes — no bloquea si falla
-      try {
-        const existingIds = fincas.map(r => r.finca.id)
-        if (existingIds.length > 0) {
-          const { data: otherAdmins } = await supabase
-            .from('finca_usuarios')
-            .select('user_id')
-            .in('finca_id', existingIds)
-            .eq('rol', 'admin')
-            .neq('user_id', user.id)
-
-          if (otherAdmins?.length) {
-            await Promise.all(
-              otherAdmins.map(a =>
-                supabase.from('finca_usuarios').insert({
-                  finca_id: newFinca.id, user_id: a.user_id, rol: 'admin',
-                })
-              )
-            )
-          }
-        }
-      } catch (shareErr) {
-        console.error('Error compartiendo finca con otros admins:', shareErr)
-      }
-
-      saveSelectedFincaId(newFinca.id)
+      saveSelectedFincaId(data as string)
       setShowNuevaFinca(false)
       setNuevaNombre('')
       setNuevaUbicacion('')
