@@ -89,6 +89,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
 
   // Leche (hembras only)
   const [lecheAnimal, setLecheAnimal] = useState<RegistroLeche[]>([])
+  const [hoveredLecheBar, setHoveredLecheBar] = useState<number | null>(null)
 
   // Form fields
   const [codigo, setCodigo] = useState('')
@@ -479,7 +480,32 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
 
       {/* Leche section — hembras only */}
       {animal.sexo === 'hembra' && (() => {
+        function localToDateStr(d: Date): string {
+          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+        }
+        function getWeekBounds(anchor: Date): { start: string; end: string } {
+          const d = new Date(anchor)
+          const dow = d.getDay()
+          const daysToMon = dow === 0 ? 6 : dow - 1
+          const mon = new Date(d); mon.setDate(d.getDate() - daysToMon)
+          const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
+          return { start: localToDateStr(mon), end: localToDateStr(sun) }
+        }
+        function isoWeek(dateStr: string): number {
+          const d = new Date(dateStr + 'T00:00:00')
+          const dow = d.getDay() || 7
+          d.setDate(d.getDate() + 4 - dow)
+          const y1 = new Date(d.getFullYear(), 0, 1)
+          return Math.ceil((((d.getTime() - y1.getTime()) / 86400000) + 1) / 7)
+        }
+        function fmtWeekLbl(start: string): string {
+          const [, m, dy] = start.split('-').map(Number)
+          const mo = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+          return `${dy} ${mo[m-1]}`
+        }
+
         const now = new Date()
+        const todayStr = localToDateStr(now)
         const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
         const lastMonthD = new Date(now.getFullYear(), now.getMonth()-1, 1)
         const lastMonth = `${lastMonthD.getFullYear()}-${String(lastMonthD.getMonth()+1).padStart(2,'0')}`
@@ -491,50 +517,124 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
         const prodMesAnterior = lastMonthRegs.reduce((s, r) => s + r.litros, 0)
         const diasConRegistro = new Set(thisMonthRegs.map(r => r.fecha)).size
         const promedioDiario = diasConRegistro > 0 ? prodEsteMes / diasConRegistro : 0
-        const ultimos10 = lecheAnimal.slice(0, 10)
+        const variacion = prodMesAnterior > 0 ? ((prodEsteMes - prodMesAnterior) / prodMesAnterior) * 100 : null
+        const totalRegistros = lecheAnimal.length
+
+        // Last 6 weeks
+        const weeks6: { start: string; end: string }[] = []
+        const seenW = new Set<string>()
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now); d.setDate(now.getDate() - i * 7)
+          const w = getWeekBounds(d)
+          if (!seenW.has(w.start)) { seenW.add(w.start); weeks6.push(w) }
+        }
+        const weekData = weeks6.map(w => ({
+          ...w,
+          litros: lecheAnimal.filter(r => r.fecha >= w.start && r.fecha <= w.end).reduce((s, r) => s + r.litros, 0),
+        }))
+        const maxLitros = Math.max(...weekData.map(w => w.litros), 1)
+
+        const ultimos = lecheAnimal.slice(0, 10)
 
         return (
           <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '24px', marginBottom: '24px' }}>
             <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '20px', color: '#1c1a17', margin: '0 0 18px' }}>Producción de leche</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
+
+            {/* 5 cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px', marginBottom: '20px' }}>
               {[
                 { label: 'Este mes (L)', value: prodEsteMes.toFixed(1) },
-                { label: 'Promedio diario (L)', value: promedioDiario.toFixed(1) },
                 { label: 'Mes anterior (L)', value: prodMesAnterior.toFixed(1) },
+                { label: 'Promedio diario (L)', value: promedioDiario.toFixed(1) },
+                { label: 'Total registros', value: String(totalRegistros) },
               ].map(m => (
                 <div key={m.label} style={{ backgroundColor: '#faf8f4', borderRadius: '10px', padding: '14px 16px', border: '1px solid rgba(60,45,30,0.08)' }}>
                   <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>{m.label}</span>
                   <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '28px', color: '#1a6b45', lineHeight: 1 }}>{m.value}</span>
                 </div>
               ))}
+              <div style={{ backgroundColor: '#faf8f4', borderRadius: '10px', padding: '14px 16px', border: '1px solid rgba(60,45,30,0.08)' }}>
+                <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>Variación</span>
+                {variacion !== null ? (
+                  <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '28px', color: variacion >= 0 ? '#1a6b45' : '#8B1A1A', lineHeight: 1 }}>
+                    {variacion >= 0 ? '+' : ''}{variacion.toFixed(1)}%
+                  </span>
+                ) : (
+                  <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#8c7f74', lineHeight: 1.3, display: 'block', marginTop: '4px' }}>Sin datos previos</span>
+                )}
+              </div>
             </div>
-            {ultimos10.length === 0 ? (
+
+            {/* Mini bar chart: last 6 weeks */}
+            <div style={{ marginBottom: '20px' }}>
+              <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', display: 'block', marginBottom: '10px' }}>Producción últimas 6 semanas</span>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '80px', position: 'relative' }}>
+                {weekData.map((w, i) => {
+                  const heightPct = w.litros > 0 ? Math.max((w.litros / maxLitros) * 100, 4) : 0
+                  const isCur = todayStr >= w.start && todayStr <= w.end
+                  return (
+                    <div key={w.start} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-end', height: '100%', position: 'relative', cursor: 'default' }}
+                      onMouseEnter={() => setHoveredLecheBar(i)}
+                      onMouseLeave={() => setHoveredLecheBar(null)}>
+                      {hoveredLecheBar === i && (
+                        <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1a17', color: 'white', padding: '5px 8px', borderRadius: '5px', fontSize: '11px', fontFamily: 'var(--font-sans), sans-serif', whiteSpace: 'nowrap', zIndex: 10, lineHeight: 1.4 }}>
+                          Sem del {fmtWeekLbl(w.start)}<br />{w.litros.toFixed(1)} L
+                        </div>
+                      )}
+                      <div style={{
+                        width: '100%',
+                        height: w.litros > 0 ? `${heightPct}%` : '4px',
+                        backgroundColor: w.litros > 0 ? (isCur ? '#1a6b45' : 'rgba(26,107,69,0.4)') : '#e5e7eb',
+                        borderRadius: '3px 3px 0 0',
+                      }} />
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '5px' }}>
+                {weekData.map(w => {
+                  const isCur = todayStr >= w.start && todayStr <= w.end
+                  return (
+                    <div key={w.start} style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-sans), sans-serif', fontSize: '9px', color: isCur ? '#1a6b45' : '#8c7f74' }}>
+                      {fmtWeekLbl(w.start)}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Records table */}
+            {ultimos.length === 0 ? (
               <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', margin: 0 }}>Sin registros de leche para este animal.</p>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(60,45,30,0.10)' }}>
-                      {['Fecha','Litros','Precio/L','Ingreso'].map(col => (
-                        <th key={col} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 500, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', whiteSpace: 'nowrap' }}>{col}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ultimos10.map((r, i) => {
-                      const ingreso = r.litros * (r.precio_litro ?? 0)
-                      return (
-                        <tr key={r.id} style={{ borderBottom: i < ultimos10.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
-                          <td style={{ padding: '9px 12px', color: '#1c1a17' }}>{r.fecha}</td>
-                          <td style={{ padding: '9px 12px', color: '#1c1a17', fontWeight: 500 }}>{r.litros} L</td>
-                          <td style={{ padding: '9px 12px', color: '#4a4540' }}>{r.precio_litro ? `$${r.precio_litro}` : '—'}</td>
-                          <td style={{ padding: '9px 12px', color: '#1a6b45' }}>{ingreso > 0 ? `$${Math.round(ingreso).toLocaleString('es-CO')}` : '—'}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 600, color: '#4a4540', display: 'block', marginBottom: '10px' }}>Últimos registros</span>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(60,45,30,0.10)' }}>
+                        {['Fecha', 'Semana', 'Litros', 'Precio/L', 'Ingreso'].map(col => (
+                          <th key={col} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 500, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8c7f74', whiteSpace: 'nowrap' }}>{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ultimos.map((r, i) => {
+                        const ingreso = r.litros * (r.precio_litro ?? 0)
+                        return (
+                          <tr key={r.id} style={{ borderBottom: i < ultimos.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
+                            <td style={{ padding: '9px 12px', color: '#1c1a17' }}>{r.fecha}</td>
+                            <td style={{ padding: '9px 12px', color: '#8c7f74', whiteSpace: 'nowrap' }}>Sem {isoWeek(r.fecha)}</td>
+                            <td style={{ padding: '9px 12px', color: '#1c1a17', fontWeight: 500 }}>{r.litros} L</td>
+                            <td style={{ padding: '9px 12px', color: '#4a4540' }}>{r.precio_litro ? `$${r.precio_litro}` : '—'}</td>
+                            <td style={{ padding: '9px 12px', color: '#1a6b45' }}>{ingreso > 0 ? `$${Math.round(ingreso).toLocaleString('es-CO')}` : '—'}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )
