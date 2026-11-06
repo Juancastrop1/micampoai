@@ -270,6 +270,14 @@ export default function LechePage() {
   const selDias = new Set(selRegs.map(r => r.fecha)).size
   const selPromedio = selDias > 0 ? selTotalLitros / selDias : 0
 
+  // Variación del mes seleccionado vs mes anterior en el dropdown
+  const prevSelD = new Date(selYear, selMo - 2, 1)
+  const prevSelMonthStart = `${prevSelD.getFullYear()}-${String(prevSelD.getMonth()+1).padStart(2,'0')}-01`
+  const prevSelMonthEnd = toDateStr(new Date(prevSelD.getFullYear(), prevSelD.getMonth() + 1, 0))
+  const prevSelRegs = registrosPrimarios.filter(r => r.fecha >= prevSelMonthStart && r.fecha <= prevSelMonthEnd)
+  const prevSelTotalLitros = prevSelRegs.reduce((s, r) => s + r.litros, 0)
+  const selVariacion = prevSelTotalLitros > 0 ? ((selTotalLitros - prevSelTotalLitros) / prevSelTotalLitros) * 100 : null
+
   // Weeks for selected month (oldest→newest for chart, newest→oldest for list)
   const weeksForMonth = getWeeksForMonth(selectedMonth)
   const weeksForList = [...weeksForMonth].reverse()
@@ -492,7 +500,7 @@ export default function LechePage() {
                 ))}
               </select>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
               {[
                 { label: 'Total litros', value: selTotalLitros.toFixed(1) + ' L' },
                 { label: 'Total ingresos', value: `$${Math.round(selTotalIngresos).toLocaleString('es-CO')}` },
@@ -504,6 +512,16 @@ export default function LechePage() {
                   <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '22px', color: '#1a6b45', lineHeight: 1 }}>{m.value}</span>
                 </div>
               ))}
+              <div style={{ backgroundColor: '#faf8f4', borderRadius: '10px', padding: '14px 16px' }}>
+                <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8c7f74', display: 'block', marginBottom: '4px' }}>Variación mensual</span>
+                {selVariacion !== null ? (
+                  <span style={{ fontFamily: 'var(--font-serif), serif', fontSize: '22px', color: selVariacion >= 0 ? '#1a6b45' : '#8B1A1A', lineHeight: 1 }}>
+                    {selVariacion >= 0 ? '+' : ''}{selVariacion.toFixed(1)}%
+                  </span>
+                ) : (
+                  <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8c7f74', lineHeight: 1.3, display: 'block', marginTop: '4px' }}>Sin datos previos</span>
+                )}
+              </div>
             </div>
           </div>
 
