@@ -112,6 +112,12 @@ export default function DashboardPage() {
   const [editUbicacion, setEditUbicacion] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
 
+  // Delete finca
+  const [showDeleteFinca, setShowDeleteFinca] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deletingFinca, setDeletingFinca] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
   const [weekLeche, setWeekLeche] = useState<{ start: string; end: string; litros: number }[]>([])
   const [proximosEventos, setProximosEventos] = useState<ProximoEvento[]>([])
   const [proximosPartos, setProximosPartos] = useState<ProximoParto[]>([])
@@ -323,6 +329,37 @@ export default function DashboardPage() {
     loadData()
   }
 
+  async function handleDeleteFinca() {
+    if (!finca) return
+    setDeletingFinca(true)
+    setDeleteError(null)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setDeletingFinca(false); return }
+
+    const { count } = await supabase
+      .from('finca_usuarios')
+      .select('finca_id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+
+    if ((count ?? 0) <= 1) {
+      setDeleteError('No puedes eliminar tu única finca.')
+      setDeletingFinca(false)
+      return
+    }
+
+    const { error } = await supabase.from('fincas').delete().eq('id', finca.id)
+    if (error) {
+      console.error('Error eliminando finca:', error)
+      setDeleteError(error.message ?? 'Error al eliminar la finca.')
+      setDeletingFinca(false)
+      return
+    }
+
+    localStorage.removeItem('selectedFincaId')
+    window.location.reload()
+  }
+
   async function handleQuickRegister(e: React.FormEvent) {
     e.preventDefault()
     if (!finca || !qLitros) return
@@ -414,15 +451,26 @@ export default function DashboardPage() {
           {finca ? finca.nombre : 'Dashboard'}
         </h1>
         {finca && rol === 'admin' && (
-          <button
-            onClick={() => { setEditNombre(finca.nombre); setEditUbicacion(finca.ubicacion ?? ''); setShowEditFinca(true) }}
-            title="Editar finca"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#8c7f74', display: 'flex', alignItems: 'center', borderRadius: '4px' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M9.5 1.5L12.5 4.5M2 12H5L12 5L9 2L2 9V12Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+          <>
+            <button
+              onClick={() => { setEditNombre(finca.nombre); setEditUbicacion(finca.ubicacion ?? ''); setShowEditFinca(true) }}
+              title="Editar finca"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#8c7f74', display: 'flex', alignItems: 'center', borderRadius: '4px' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M9.5 1.5L12.5 4.5M2 12H5L12 5L9 2L2 9V12Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <button
+              onClick={() => { setDeleteConfirmText(''); setDeleteError(null); setShowDeleteFinca(true) }}
+              title="Eliminar finca"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: 'rgba(185,28,28,0.5)', display: 'flex', alignItems: 'center', borderRadius: '4px' }}
+            >
+              <svg width="13" height="14" viewBox="0 0 13 14" fill="none">
+                <path d="M1 3.5H12M4.5 3.5V2H8.5V3.5M2.5 3.5L3 11.5C3 12.05 3.45 12.5 4 12.5H9C9.55 12.5 10 12.05 10 11.5L10.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </>
         )}
       </div>
       <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74', margin: '0 0 28px' }}>
@@ -659,6 +707,49 @@ export default function DashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete finca modal */}
+      {showDeleteFinca && finca && (
+        <div onClick={() => setShowDeleteFinca(false)}
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px' }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '460px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '22px', color: '#8B1A1A', margin: '0 0 12px' }}>Eliminar finca</h2>
+            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#4a4540', margin: '0 0 20px', lineHeight: 1.6 }}>
+              ¿Estás seguro de eliminar la finca <strong>{finca.nombre}</strong>? Se eliminarán todos los animales, lotes, registros de leche, eventos y datos asociados. <strong>Esta acción no se puede deshacer.</strong>
+            </p>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', fontWeight: 500, color: '#4a4540', display: 'block', marginBottom: '6px' }}>
+                Escribe <strong>{finca.nombre}</strong> para confirmar
+              </label>
+              <input
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder={finca.nombre}
+                autoFocus
+                style={{ width: '100%', padding: '10px 14px', border: '1px solid rgba(139,26,26,0.3)', borderRadius: '8px', backgroundColor: '#fff8f8', fontSize: '14px', fontFamily: 'var(--font-sans), sans-serif', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+            {deleteError && (
+              <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8B1A1A', margin: '0 0 16px', padding: '8px 12px', backgroundColor: '#fff0f0', borderRadius: '6px', border: '1px solid rgba(139,26,26,0.2)' }}>
+                {deleteError}
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setShowDeleteFinca(false)}
+                style={{ padding: '10px 20px', border: '1px solid rgba(60,45,30,0.18)', borderRadius: '8px', backgroundColor: 'transparent', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', cursor: 'pointer', color: '#4a4540' }}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteFinca}
+                disabled={deletingFinca || deleteConfirmText !== finca.nombre}
+                style={{ padding: '10px 24px', backgroundColor: '#8B1A1A', color: 'white', border: 'none', borderRadius: '8px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: 500, cursor: (deletingFinca || deleteConfirmText !== finca.nombre) ? 'not-allowed' : 'pointer', opacity: (deletingFinca || deleteConfirmText !== finca.nombre) ? 0.5 : 1, transition: 'opacity 0.15s' }}>
+                {deletingFinca ? 'Eliminando...' : 'Eliminar finca'}
+              </button>
+            </div>
           </div>
         </div>
       )}
