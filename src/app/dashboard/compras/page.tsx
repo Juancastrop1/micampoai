@@ -132,6 +132,7 @@ export default function ComprasPage() {
           fecha,
           vendedor: vendedor.trim(),
           cedula_nit_vendedor: cedulaVendedor.trim() || null,
+          cantidad: validRows.length,
           precio_total: parseFloat(precioTotal),
           precio_por_kg: precioKg ? parseFloat(precioKg) : null,
           notas: notas.trim() || null,

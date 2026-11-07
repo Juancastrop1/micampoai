@@ -60,6 +60,7 @@ export type CompraAnimal = {
   fecha: string
   vendedor: string
   cedula_nit_vendedor: string | null
+  cantidad: number
   precio_total: number
   precio_por_kg: number | null
   notas: string | null

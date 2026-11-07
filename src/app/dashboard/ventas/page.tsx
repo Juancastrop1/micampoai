@@ -73,6 +73,7 @@ export default function VentasPage() {
   const [nvConfirm, setNvConfirm] = useState(false)
   const [nvSaving, setNvSaving] = useState(false)
   const [nvError, setNvError] = useState<string | null>(null)
+  const [nvSearch, setNvSearch] = useState('')
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadData() }, [])
@@ -117,6 +118,7 @@ export default function VentasPage() {
     setNvComprador('')
     setNvCedula('')
     setNvNotas('')
+    setNvSearch('')
     setNvLoading(false)
     setShowNuevaVenta(true)
   }
@@ -264,6 +266,12 @@ export default function VentasPage() {
   const nvDisplayAnimals = nvMode === 'lote'
     ? (nvLoteId ? nvAnimales.filter(a => a.lote_id === nvLoteId) : [])
     : nvAnimales
+  const nvFilteredAnimals = nvSearch.trim()
+    ? nvDisplayAnimals.filter(a =>
+        a.codigo.toLowerCase().includes(nvSearch.toLowerCase()) ||
+        (a.nombre ?? '').toLowerCase().includes(nvSearch.toLowerCase())
+      )
+    : nvDisplayAnimals
   const nvPrecioKgNum = parseFloat(nvPrecioKg) || 0
   const nvGrandTotal = nvAnimales
     .filter(a => nvSelectedIds.has(a.id))
@@ -489,7 +497,7 @@ export default function VentasPage() {
             <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(60,45,30,0.15)', borderRadius: '8px', overflow: 'hidden' }}>
               {(['lote', 'manual'] as const).map(m => (
                 <button key={m} type="button"
-                  onClick={() => { setNvMode(m); setNvSelectedIds(new Set()); setNvLoteId('') }}
+                  onClick={() => { setNvMode(m); setNvSelectedIds(new Set()); setNvLoteId(''); setNvSearch('') }}
                   style={{ flex: 1, padding: '10px', border: 'none', backgroundColor: nvMode === m ? '#1a6b45' : 'transparent', color: nvMode === m ? 'white' : '#4a4540', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', fontWeight: nvMode === m ? 500 : 400, cursor: 'pointer', transition: 'background 0.15s' }}>
                   {m === 'lote' ? 'Por lote' : 'Selección manual'}
                 </button>
@@ -506,6 +514,7 @@ export default function VentasPage() {
                     onChange={e => {
                       const lid = e.target.value
                       setNvLoteId(lid)
+                      setNvSearch('')
                       const animals = nvAnimales.filter(a => a.lote_id === lid)
                       setNvSelectedIds(new Set(animals.map(a => a.id)))
                     }}
@@ -539,40 +548,56 @@ export default function VentasPage() {
                   {nvMode === 'lote' ? 'Selecciona un lote para ver sus animales' : 'No hay animales activos en la finca'}
                 </div>
               ) : (
-                <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                  {nvMode === 'manual' ? (
-                    // Grouped by lote for manual mode
-                    (() => {
-                      const noLote = nvDisplayAnimals.filter(a => !a.lote_id)
-                      const byLote = nvLotesWithActive.map(l => ({
-                        lote: l,
-                        animals: nvDisplayAnimals.filter(a => a.lote_id === l.id),
-                      })).filter(g => g.animals.length > 0)
-                      return [...byLote.map(g => ({ label: g.lote.nombre, animals: g.animals })), ...(noLote.length > 0 ? [{ label: 'Sin lote', animals: noLote }] : [])]
-                    })().map(group => (
-                      <div key={group.label}>
-                        <div style={{ padding: '7px 16px', backgroundColor: '#f5f2ed', fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', fontWeight: 600, color: '#8c7f74', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{group.label}</div>
-                        {group.animals.map((a, ai) => (
-                          <AnimalSelectionRow key={a.id} a={a} checked={nvSelectedIds.has(a.id)}
-                            peso={nvPesos[a.id] ?? ''}
-                            onCheck={v => setNvSelectedIds(prev => { const s = new Set(prev); if (v) s.add(a.id); else s.delete(a.id); return s })}
-                            onPeso={v => setNvPesos(prev => ({ ...prev, [a.id]: v }))}
-                            last={ai === group.animals.length - 1}
-                          />
-                        ))}
+                <>
+                  <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(60,45,30,0.08)', backgroundColor: '#faf8f4', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <input
+                      value={nvSearch}
+                      onChange={e => setNvSearch(e.target.value)}
+                      placeholder="Buscar por código o nombre..."
+                      style={{ flex: 1, padding: '7px 12px', border: '1px solid rgba(60,45,30,0.15)', borderRadius: '7px', backgroundColor: '#ffffff', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', outline: 'none' }}
+                    />
+                    <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '12px', color: '#8c7f74', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      Mostrando {nvFilteredAnimals.length} de {nvDisplayAnimals.length}
+                    </span>
+                  </div>
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    {nvFilteredAnimals.length === 0 ? (
+                      <div style={{ padding: '20px 16px', textAlign: 'center', fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74' }}>
+                        Sin animales que coincidan con &ldquo;{nvSearch}&rdquo;
                       </div>
-                    ))
-                  ) : (
-                    nvDisplayAnimals.map((a, ai) => (
-                      <AnimalSelectionRow key={a.id} a={a} checked={nvSelectedIds.has(a.id)}
-                        peso={nvPesos[a.id] ?? ''}
-                        onCheck={v => setNvSelectedIds(prev => { const s = new Set(prev); if (v) s.add(a.id); else s.delete(a.id); return s })}
-                        onPeso={v => setNvPesos(prev => ({ ...prev, [a.id]: v }))}
-                        last={ai === nvDisplayAnimals.length - 1}
-                      />
-                    ))
-                  )}
-                </div>
+                    ) : nvMode === 'manual' ? (
+                      (() => {
+                        const noLote = nvFilteredAnimals.filter(a => !a.lote_id)
+                        const byLote = nvLotesWithActive.map(l => ({
+                          lote: l,
+                          animals: nvFilteredAnimals.filter(a => a.lote_id === l.id),
+                        })).filter(g => g.animals.length > 0)
+                        return [...byLote.map(g => ({ label: g.lote.nombre, animals: g.animals })), ...(noLote.length > 0 ? [{ label: 'Sin lote', animals: noLote }] : [])]
+                      })().map(group => (
+                        <div key={group.label}>
+                          <div style={{ padding: '7px 16px', backgroundColor: '#f5f2ed', fontFamily: 'var(--font-sans), sans-serif', fontSize: '11px', fontWeight: 600, color: '#8c7f74', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{group.label}</div>
+                          {group.animals.map((a, ai) => (
+                            <AnimalSelectionRow key={a.id} a={a} checked={nvSelectedIds.has(a.id)}
+                              peso={nvPesos[a.id] ?? ''}
+                              onCheck={v => setNvSelectedIds(prev => { const s = new Set(prev); if (v) s.add(a.id); else s.delete(a.id); return s })}
+                              onPeso={v => setNvPesos(prev => ({ ...prev, [a.id]: v }))}
+                              last={ai === group.animals.length - 1}
+                            />
+                          ))}
+                        </div>
+                      ))
+                    ) : (
+                      nvFilteredAnimals.map((a, ai) => (
+                        <AnimalSelectionRow key={a.id} a={a} checked={nvSelectedIds.has(a.id)}
+                          peso={nvPesos[a.id] ?? ''}
+                          onCheck={v => setNvSelectedIds(prev => { const s = new Set(prev); if (v) s.add(a.id); else s.delete(a.id); return s })}
+                          onPeso={v => setNvPesos(prev => ({ ...prev, [a.id]: v }))}
+                          last={ai === nvFilteredAnimals.length - 1}
+                        />
+                      ))
+                    )}
+                  </div>
+                </>
               )}
             </div>
 
