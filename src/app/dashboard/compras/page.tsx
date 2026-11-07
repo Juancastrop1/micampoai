@@ -38,6 +38,7 @@ export default function ComprasPage() {
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   // Form fields
   const [fecha, setFecha] = useState(today)
@@ -111,6 +112,7 @@ export default function ComprasPage() {
     setFecha(today); setVendedor(''); setCedulaVendedor('')
     setPrecioTotal(''); setPrecioKg(''); setNotas('')
     setAnimalRows([emptyAnimalRow()])
+    setErrorMsg(null)
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -119,18 +121,33 @@ export default function ComprasPage() {
     const validRows = animalRows.filter(r => r.codigo.trim() && r.sexo)
     if (validRows.length === 0) return
     setSaving(true)
+    setErrorMsg(null)
     const supabase = createClient()
-    const { data: compraData } = await supabase.from('compras_animales').insert({
-      finca_id: finca.id, fecha,
-      vendedor: vendedor.trim(),
-      cedula_nit_vendedor: cedulaVendedor.trim() || null,
-      precio_total: parseFloat(precioTotal),
-      precio_por_kg: precioKg ? parseFloat(precioKg) : null,
-      notas: notas.trim() || null,
-    }).select().single()
+    try {
+      console.log('[Compras] INSERT compras_animales', { finca_id: finca.id, fecha, vendedor: vendedor.trim() })
+      const { data: compraData, error: compraError } = await supabase
+        .from('compras_animales')
+        .insert({
+          finca_id: finca.id,
+          fecha,
+          vendedor: vendedor.trim(),
+          cedula_nit_vendedor: cedulaVendedor.trim() || null,
+          precio_total: parseFloat(precioTotal),
+          precio_por_kg: precioKg ? parseFloat(precioKg) : null,
+          notas: notas.trim() || null,
+        })
+        .select()
+        .single()
 
-    if (compraData) {
-      await supabase.from('animales').insert(validRows.map(r => ({
+      if (compraError) {
+        console.error('[Compras] Error en INSERT compras_animales:', compraError)
+        setErrorMsg(`Error al registrar compra: ${compraError.message}`)
+        setSaving(false)
+        return
+      }
+      console.log('[Compras] compras_animales OK — id:', compraData?.id)
+
+      const animalesPayload = validRows.map(r => ({
         finca_id: finca.id,
         codigo: r.codigo.trim(),
         nombre: r.nombre.trim() || null,
@@ -142,15 +159,31 @@ export default function ComprasPage() {
         lote_id: r.lote_id || null,
         estado: 'activo',
         origen: 'comprado',
-        compra_id: compraData.id,
-      })))
+        compra_id: compraData!.id,
+      }))
+      console.log('[Compras] INSERT animales (', animalesPayload.length, ')', animalesPayload.map(a => ({ codigo: a.codigo, finca_id: a.finca_id, compra_id: a.compra_id })))
+      const { error: animalesError } = await supabase.from('animales').insert(animalesPayload)
+
+      if (animalesError) {
+        console.error('[Compras] Error en INSERT animales:', animalesError)
+        setErrorMsg(`Compra creada (id: ${compraData!.id}) pero error al agregar animales: ${animalesError.message}`)
+        setSaving(false)
+        loadData()
+        return
+      }
+      console.log('[Compras] animales insertados OK')
+
       setSuccessMsg(`Compra registrada. ${validRows.length} animal${validRows.length !== 1 ? 'es' : ''} agregado${validRows.length !== 1 ? 's' : ''} a la finca.`)
+      setSaving(false)
+      setShowModal(false)
+      resetModal()
+      loadData()
+      setTimeout(() => setSuccessMsg(null), 5000)
+    } catch (err) {
+      console.error('[Compras] Excepción inesperada:', err)
+      setErrorMsg(`Error inesperado: ${err instanceof Error ? err.message : String(err)}`)
+      setSaving(false)
     }
-    setSaving(false)
-    setShowModal(false)
-    resetModal()
-    loadData()
-    setTimeout(() => setSuccessMsg(null), 5000)
   }
 
   function openEdit(c: CompraAnimal) {
@@ -354,6 +387,11 @@ export default function ComprasPage() {
             style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px', maxWidth: '640px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', maxHeight: '92vh', overflowY: 'auto' }}>
             <h2 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '24px', color: '#1c1a17', margin: '0 0 22px' }}>Registrar compra</h2>
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {errorMsg && (
+                <div style={{ backgroundColor: '#fee2e2', border: '1px solid rgba(139,26,26,0.25)', borderRadius: '8px', padding: '10px 14px', fontFamily: 'var(--font-sans), sans-serif', fontSize: '13px', color: '#8B1A1A', lineHeight: 1.5 }}>
+                  ⚠ {errorMsg}
+                </div>
+              )}
               {/* Header fields */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 <div>
