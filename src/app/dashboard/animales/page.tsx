@@ -52,7 +52,7 @@ const emptyForm: FormState = {
   estado_reproductivo: '', fecha_parto_estimada: '',
 }
 type SortCol = 'codigo' | 'nombre' | 'raza' | 'lote' | 'edad'
-type MasivoForm = { tipo: string; descripcion: string; fecha: string; costo: string; proxima_fecha: string; precioVentaTotal: string; comprador: string }
+type MasivoForm = { tipo: string; descripcion: string; fecha: string; costo: string; proxima_fecha: string; precioVentaTotal: string; comprador: string; cedula_nit_comprador: string }
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T00:00:00')
@@ -125,7 +125,7 @@ export default function AnimalesPage() {
   const [showMasivoModal, setShowMasivoModal] = useState(false)
   const [showVentaConfirm, setShowVentaConfirm] = useState(false)
   const [masivoMode, setMasivoMode] = useState<'lote' | 'manual'>('lote')
-  const [masivoForm, setMasivoForm] = useState<MasivoForm>({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '', precioVentaTotal: '', comprador: '' })
+  const [masivoForm, setMasivoForm] = useState<MasivoForm>({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '', precioVentaTotal: '', comprador: '', cedula_nit_comprador: '' })
   const [masivoLoteId, setMasivoLoteId] = useState('')
   const [masivoSelected, setMasivoSelected] = useState<string[]>([])
   const [masivoWeights, setMasivoWeights] = useState<Record<string, string>>({})
@@ -290,9 +290,13 @@ export default function AnimalesPage() {
         return {
           animal_id,
           finca_id: finca!.id,
+          lote_id: anim?.lote_id || null,
           fecha: masivoForm.fecha,
           precio: peso * precioKg,
           comprador: masivoForm.comprador || null,
+          cedula_nit_comprador: masivoForm.cedula_nit_comprador || null,
+          peso_venta: peso || null,
+          precio_por_kg: precioKg || null,
         }
       })
       await Promise.all([
@@ -356,7 +360,7 @@ export default function AnimalesPage() {
     setSavingMasivo(false)
     setShowVentaConfirm(false)
     setShowMasivoModal(false)
-    setMasivoForm({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '', precioVentaTotal: '', comprador: '' })
+    setMasivoForm({ tipo: '', descripcion: '', fecha: todayStr, costo: '', proxima_fecha: '', precioVentaTotal: '', comprador: '', cedula_nit_comprador: '' })
     setMasivoLoteId(''); setMasivoSelected([]); setMasivoWeights({}); setMasivoVentaItems({}); setMasivoVentaPrecioBase(''); setMasivoError(null)
     loadData()
   }
@@ -572,7 +576,12 @@ export default function AnimalesPage() {
                 <tr><td colSpan={10} style={{ padding: '32px 16px', textAlign: 'center', color: '#8c7f74' }}>Sin animales registrados</td></tr>
               ) : displayFinal.map((a, i) => (
                 <tr key={a.id} style={{ borderBottom: i < displayFinal.length - 1 ? '1px solid rgba(60,45,30,0.07)' : 'none' }}>
-                  <td style={{ padding: '12px 16px', fontWeight: 500, color: '#1c1a17' }}>{a.codigo}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 500, color: '#1c1a17' }}>
+                    {a.codigo}
+                    {a.origen === 'comprado' && (
+                      <span title="Animal comprado" style={{ marginLeft: '6px', backgroundColor: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: '12px', fontSize: '10px', fontWeight: 600 }}>C</span>
+                    )}
+                  </td>
                   <td style={{ padding: '12px 16px', color: a.estado !== 'activo' ? '#8c7f74' : '#4a4540', fontStyle: a.estado !== 'activo' ? 'italic' : 'normal', whiteSpace: 'nowrap' }}>
                     {getEdadDisplay(a)}
                   </td>
@@ -789,6 +798,10 @@ export default function AnimalesPage() {
                   <div>
                     <label style={labelStyle}>Comprador (opcional)</label>
                     <input value={masivoForm.comprador} onChange={e => setMasivoForm(f => ({ ...f, comprador: e.target.value }))} placeholder="Nombre del comprador" style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Cédula o NIT del comprador (opcional)</label>
+                    <input value={masivoForm.cedula_nit_comprador} onChange={e => setMasivoForm(f => ({ ...f, cedula_nit_comprador: e.target.value }))} placeholder="Ej: 900.123.456-7" style={inputStyle} />
                   </div>
                 </>
               )}

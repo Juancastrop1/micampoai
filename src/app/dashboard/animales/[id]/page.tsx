@@ -101,6 +101,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
   const [ventaPeso, setVentaPeso] = useState('')
   const [ventaPrecioKg, setVentaPrecioKg] = useState('')
   const [ventaComprador, setVentaComprador] = useState('')
+  const [ventaCedulaNit, setVentaCedulaNit] = useState('')
   const [ventaNotas, setVentaNotas] = useState('')
 
   // Form fields
@@ -251,6 +252,7 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
     setVentaPeso(animal?.peso_actual != null ? String(animal.peso_actual) : '')
     setVentaPrecioKg('')
     setVentaComprador('')
+    setVentaCedulaNit('')
     setVentaNotas('')
     setShowVentaModal(true)
   }
@@ -269,8 +271,13 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
         animal_id: animal.id, tipo: 'venta', descripcion: desc, fecha: ventaFecha, costo: total,
       }),
       supabase.from('ventas_animales').insert({
-        animal_id: animal.id, finca_id: animal.finca_id, fecha: ventaFecha,
-        precio: total, comprador: ventaComprador || null,
+        animal_id: animal.id, finca_id: animal.finca_id,
+        lote_id: animal.lote_id || null,
+        fecha: ventaFecha, precio: total,
+        comprador: ventaComprador || null,
+        cedula_nit_comprador: ventaCedulaNit || null,
+        peso_venta: peso, precio_por_kg: precioKg,
+        notas: ventaNotas || null,
       }),
     ])
     router.push('/dashboard/animales')
@@ -387,7 +394,14 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
       <h1 style={{ fontFamily: 'var(--font-serif), serif', fontWeight: 'normal', fontSize: '28px', color: '#1c1a17', margin: '0 0 4px' }}>
         {animal.nombre ?? animal.codigo}
       </h1>
-      <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74', margin: '0 0 28px' }}>Código: {animal.codigo}</p>
+      <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: '14px', color: '#8c7f74', margin: '0 0 28px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        Código: {animal.codigo}
+        {animal.origen === 'comprado' && (
+          animal.compra_id
+            ? <Link href="/dashboard/compras" style={{ backgroundColor: '#dbeafe', color: '#1e40af', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 500, textDecoration: 'none' }}>Comprado</Link>
+            : <span style={{ backgroundColor: '#dbeafe', color: '#1e40af', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 500 }}>Comprado</span>
+        )}
+      </p>
 
       {/* Edit form */}
       <div style={{ backgroundColor: '#ffffff', border: '1px solid rgba(60,45,30,0.10)', borderRadius: '12px', padding: '28px', marginBottom: '24px' }}>
@@ -1035,6 +1049,10 @@ export default function AnimalDetailPage({ params }: { params: { id: string } })
               <div>
                 <label style={labelStyle}>Comprador (opcional)</label>
                 <input value={ventaComprador} onChange={e => setVentaComprador(e.target.value)} placeholder="Nombre del comprador" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Cédula o NIT del comprador (opcional)</label>
+                <input value={ventaCedulaNit} onChange={e => setVentaCedulaNit(e.target.value)} placeholder="Ej: 900.123.456-7" style={inputStyle} />
               </div>
               <div>
                 <label style={labelStyle}>Notas (opcional)</label>

@@ -71,6 +71,28 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    href: '/dashboard/ventas',
+    label: 'Ventas',
+    exact: false,
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M9 2H14V7L7 14L2 9L9 2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none" />
+        <circle cx="11.5" cy="4.5" r="0.9" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/compras',
+    label: 'Compras',
+    exact: false,
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M3 5H13L12 13H4L3 5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none" />
+        <path d="M6 5V4C6 2.9 6.9 2 8 2C9.1 2 10 2.9 10 4V5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+      </svg>
+    ),
+  },
 ]
 
 const equipoIcon = (

@@ -33,6 +33,37 @@ export type Animal = {
   fecha_parto_estimada?: string | null
   madre_id?: string | null
   padre_id?: string | null
+  origen?: 'nativo' | 'comprado' | null
+  compra_id?: string | null
+}
+
+export type VentaAnimal = {
+  id: string
+  animal_id: string
+  finca_id: string
+  lote_id: string | null
+  fecha: string
+  precio: number
+  comprador: string | null
+  cedula_nit_comprador: string | null
+  peso_venta: number | null
+  precio_por_kg: number | null
+  notas: string | null
+  created_at: string
+  animales?: { id: string; codigo: string; nombre: string | null } | null
+  lotes?: { nombre: string } | null
+}
+
+export type CompraAnimal = {
+  id: string
+  finca_id: string
+  fecha: string
+  vendedor: string
+  cedula_nit_vendedor: string | null
+  precio_total: number
+  precio_por_kg: number | null
+  notas: string | null
+  created_at: string
 }
 
 export type RegistroLeche = {
